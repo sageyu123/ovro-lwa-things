@@ -1,0 +1,10 @@
+[build-system]
+requires = ["setuptools",
+    "wheel",
+    "setuptools_scm",
+"numpy",
+"scipy",
+    "matplotlib",
+    "sunpy",
+    "paramiko"
+]
