@@ -6,7 +6,7 @@ import os
 from getpass import getpass
 from astropy.time import Time
 import astropy.units as u
-
+import configparser
 
 def get_file_list(ssh, remote_dir):
     """Get the list of files from the remote directory."""
@@ -133,9 +133,9 @@ def setup_ssh_connection(user, hostname, identityfile):
 
 
 # Main function to download OVRO-LWA data
-def download_ovrolwa(starttime=None, endtime=None, cadence=None, timestamps=None, mode='auto', level='lev1',
-                     filetype='hdf',
-                     timediff_tol=None, specmode='mfs'):
+def download_ovrolwa(starttime=None, endtime=None, cadence=None, timestamps=None,
+                    mode='auto', level='lev1',
+                    filetype='hdf', timediff_tol=None, specmode='mfs', config='./ssh-to-data.private.config'):
     '''
     Download OVRO-LWA data from the OVSA server for a given time range or list of timestamps.
     :param starttime:
@@ -146,15 +146,22 @@ def download_ovrolwa(starttime=None, endtime=None, cadence=None, timestamps=None
     :param level:
     :param timediff_tol: time tolerance in seconds
     :param specmode: 'fch' or 'mfs'
+    :param config: directory to file containing SSH config
     :return:
     '''
-    # Define SSH config manually
-    ssh_host ="ovsa.njit.edu"
-    user = "sjyu"
-    home_dir = os.path.expanduser('~')
-    identityfile = os.path.join(home_dir, ".ssh", "id_rsa")
 
-    data_dir = '/Volumes/sandiskSSD/work/research_data'
+    # Read SSH config
+    # check if the file exists
+    if not os.path.exists(config):
+        raise FileNotFoundError(f"Config file {config} not found.")
+    
+    config = configparser.ConfigParser()
+    config.read(config)
+    ssh_host = config['SSH']['host']
+    user = config['SSH']['user']
+    identityfile = config['SSH']['identityfile']
+
+    data_dir = './'
     # Define other constants
     remote_dir_template = "/nas6/ovro-lwa-data/{filetype}/{mode}/{level}/{year}/{month:02d}/{day:02d}"
     local_base_dir_template = f"{data_dir}/ovro-lwa-data/{filetype}/{{mode}}/{level}/"
