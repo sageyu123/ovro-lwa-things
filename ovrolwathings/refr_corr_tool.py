@@ -1,27 +1,27 @@
+import argparse
+import json
 import sys
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pyvista as pv
-from pyvistaqt import BackgroundPlotter
-from PyQt5.QtWidgets import (QApplication, QWidget, QLabel, QLineEdit, QPushButton,
-                             QVBoxLayout, QHBoxLayout, QGroupBox, \
-                             QCheckBox, QFileDialog, QMessageBox, QSlider, QSplitter, QSizePolicy, QToolButton,
-                             QToolBar, QSpinBox, QAbstractSlider)
-from PyQt5.QtGui import QIcon, QFont, QIntValidator, QDoubleValidator
-from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 import sunpy.map as smap
-from astropy.coordinates import SkyCoord
+from PyQt5.QtCore import QTimer, Qt, pyqtSignal
+from PyQt5.QtGui import QDoubleValidator, QIcon, QIntValidator
+from PyQt5.QtWidgets import (QAbstractSlider, QApplication, QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel,
+                             QLineEdit, QPushButton, QSizePolicy, QSlider, QSpinBox, QSplitter, QToolBar, QToolButton,
+                             QVBoxLayout, QWidget)
 from astropy import units as u
-import matplotlib.pyplot as plt
-from ovrolwathings.utils import data1d_to_rgba, norm_to_percent, define_filename, shift2pxy, pxy2shifts, correct_images, define_timestring
+from astropy.coordinates import SkyCoord
+from pyvistaqt import BackgroundPlotter
 # import vtk
 from skimage.feature import peak_local_max
-from sunpy.map.maputils import all_coordinates_from_map
-import json
-from pathlib import Path
-import os
 from sunpy.coordinates import Helioprojective
-import argparse
-from copy import copy
+from sunpy.map.maputils import all_coordinates_from_map
+
+from ovrolwathings.utils import correct_images, define_filename, define_timestring, norm_to_percent, pxy2shifts, \
+    shift2pxy
 
 UI_dir = Path(__file__).parent / 'UI'
 
@@ -283,7 +283,8 @@ class ImageCorrectionApp(BackgroundPlotter):
         Loads refraction correction parameters from a JSON file.
     """
 
-    def __init__(self, image_series=None, meta=None, background_map=None, lwafile=None, freqs_default=None):
+    def __init__(self, image_series=None, meta=None, background_map=None, lwafile=None, freqs_default=None,
+                 trajectory_file=None):
         super().__init__()
         # print(f"lwafile: {lwafile}, background_map: {background_map}")
         if lwafile:
@@ -293,13 +294,20 @@ class ImageCorrectionApp(BackgroundPlotter):
             else:
                 from suncasa.io import ndfits
                 self.meta, self.image_series = ndfits.read(lwafile)
-                if  'cfreqs' not in self.meta:
+                if 'cfreqs' not in self.meta:
                     self.meta['cfreqs'] = self.meta['ref_cfreqs']
 
             self.image_series = np.squeeze(self.image_series)
         else:
             self.image_series = np.squeeze(image_series)
             self.meta = meta
+
+        if trajectory_file:
+            import pickle
+            with open(trajectory_file, 'rb') as f:
+                self.trajs = pickle.load(f)
+        else:
+            self.trajs = None
 
         # Initialize undo/redo stacks
         self.undo_stack = []
@@ -326,6 +334,7 @@ class ImageCorrectionApp(BackgroundPlotter):
         self.rmap_origin = None
         # self.params_filename = define_filename(self.rmap, prefix="refrac_corr_", ext=".json", get_latest_version=True)
         self.timestamp = define_timestring(self.rmap)
+        self.time = self.rmap.date
         self.rsun = self.rmap.rsun_obs.to(u.arcsec).value
         self.top_right = SkyCoord(6000 * u.arcsec, 6000 * u.arcsec, frame=self.rmap.coordinate_frame)
         self.bottom_left = SkyCoord(-6000 * u.arcsec, -6000 * u.arcsec, frame=self.rmap.coordinate_frame)
@@ -341,7 +350,7 @@ class ImageCorrectionApp(BackgroundPlotter):
         self.save_state_flag = False  # Flag to control state saving
 
         if background_map is not None:
-            self.zoffset = 0.001*np.arange(len(background_map),0, -1)
+            self.zoffset = 0.001 * np.arange(len(background_map), 0, -1)
             _ = self.init_background_map(background_map)
         self.px = [0.0, 0.0]
         self.py = [0.0, 0.0]
@@ -359,6 +368,7 @@ class ImageCorrectionApp(BackgroundPlotter):
         }
         self.initUI()
         self.init_background()
+        self.init_trajs()
         self.view_xz()
         self.camera.ParallelProjectionOn()
         self.save_state_flag = True  # Flag to control state saving
@@ -509,6 +519,69 @@ class ImageCorrectionApp(BackgroundPlotter):
         img_data['dslice_data'] = np.zeros(data.shape)
         return img_data
 
+    def init_trajs(self):
+        self.trajs_actors = None
+        if self.trajs is not None:
+            self.trajs_actors = {'actor_cut': None, 'line_cut': None, 'tube_cut': None, 'points_cut': None,
+                                 'actor_trajs': [], 'point_trajs': [], 'sphere_trajs':[]}
+            from scipy.interpolate import interp1d
+            method = 'linear'
+            cutslit = self.trajs['cutslit']
+            points = np.vstack([cutslit['xcen'], [0] * len(cutslit['xcen']), cutslit['ycen']]).T
+            # actor = self.add_lines(points, color='purple', width=5, connected=True)
+            # Create a line from points
+            line = pv.lines_from_points(points)
+            # Create a tube around the line
+            tube = line.tube(radius=10)
+            # Add the tube to the plotter
+            actor = self.add_mesh(tube, color='purple', opacity=0.5)
+            self.trajs_actors['actor_cut'] = actor
+            self.trajs_actors['points_cut'] = points
+            self.trajs_actors['line_cut'] = line
+            self.trajs_actors['tube_cut'] = tube
+
+            xcen = cutslit['xcen']
+            ycen = cutslit['ycen']
+            dist = cutslit['dist']
+
+            interp_func_xcen = interp1d(dist, xcen, kind=method, fill_value="extrapolate")
+            interp_func_ycen = interp1d(dist, ycen, kind=method, fill_value="extrapolate")
+
+            tplt_now = self.time.plot_date
+            for traj in self.trajs['trajs']:
+                trajdist = traj['dist']
+                trajtplt = traj['tplt']
+                interp_func_dist = interp1d(trajtplt, trajdist, kind=method, fill_value="extrapolate")
+                dist_now = interp_func_dist(tplt_now)
+                xcen_now = interp_func_xcen(dist_now)
+                ycen_now = interp_func_ycen(dist_now)
+
+                point = (xcen_now.item(), 0, ycen_now.item(),)
+                point = np.array(point)
+                sphere = pv.Sphere(radius=self.rsun * 0.1, center=point, theta_resolution=30, phi_resolution=30)
+
+                # Add the sphere to the plotter with transparency
+                actor = self.add_mesh(sphere, color='red', opacity=0.5)
+                self.trajs_actors['actor_trajs'].append(actor)
+                self.trajs_actors['point_trajs'].append(point)
+                # self.trajs_actors['sphere_trajs'].append(sphere)
+
+    def update_trajs(self, center=(0, 0, 0)):
+        if self.trajs_actors is not None:
+            points_new = self.trajs_actors['points_cut'] + np.array(center).T[np.newaxis, :]
+            self.trajs_actors['line_cut'].points = points_new
+            self.trajs_actors['tube_cut'] = self.trajs_actors['line_cut'].tube(radius=10)
+            self.trajs_actors['actor_cut'].GetMapper().SetInputData(self.trajs_actors['tube_cut'])
+
+            # Update spheres
+            for idx, point in enumerate(self.trajs_actors['point_trajs']):
+                point_new = point + np.array(center)
+                sphere = pv.Sphere(radius=self.rsun * 0.1, center=point_new, theta_resolution=30, phi_resolution=30)
+                # self.trajs_actors['sphere_trajs'][idx] = sphere
+                self.trajs_actors['actor_trajs'][idx].GetMapper().SetInputData(sphere)
+
+            self.render()
+
     def init_background(self):
         """
         Initialize the background image data and actors.
@@ -537,7 +610,7 @@ class ImageCorrectionApp(BackgroundPlotter):
                                   show_edges=False,
                                   pickable=False, show_scalar_bar=False)
             self.plane_background.append(
-                {'bkgmapname':bkgmapname, 'img_data': img_data, 'actor': actor, 'cmap': cmap, 'origin': origin})
+                {'bkgmapname': bkgmapname, 'img_data': img_data, 'actor': actor, 'cmap': cmap, 'origin': origin})
 
         self.bkg_sphere = self.add_sphere_widget(self._on_bkg_sphere_move, center=(0, 0, 0), radius=self.rsun,
                                                  theta_resolution=20,
@@ -587,7 +660,7 @@ class ImageCorrectionApp(BackgroundPlotter):
             Computed shifts (px, py).
         """
         px, py = shift2pxy(center[0] - self.frg_sphere_origin[0], center[2] - self.frg_sphere_origin[2],
-                                self.cfreqsmhz[-1])
+                           self.cfreqsmhz[-1])
         self.px[0] = px
         self.py[0] = py
         self.shifts_x, self.shifts_y = pxy2shifts(self.px, self.py, self.freqs)
@@ -678,6 +751,7 @@ class ImageCorrectionApp(BackgroundPlotter):
             self.px1_input.setText(f"{center[0]:.2f}")
             self.py1_input.setText(f"{center[2]:.2f}")
         self.update_background()
+        self.update_trajs(center)
 
     def update_background(self):
         """
@@ -753,9 +827,10 @@ class ImageCorrectionApp(BackgroundPlotter):
                     img_data['dslice_data'] = data_dslice
                     opacity_array = norm_to_percent(img_data['scalar'].ravel(order='F'),
                                                     minpercent=np.nanmin(self.levels))
-                    plane['actor_rdslice'] = self.add_mesh(img_data, scalars='dslice_data', cmap=self.cmap, clim=[0, 255],
-                                                        opacity=opacity_array, rgb=False,
-                                                        show_scalar_bar=False, pickable=False)
+                    plane['actor_rdslice'] = self.add_mesh(img_data, scalars='dslice_data', cmap=self.cmap,
+                                                           clim=[0, 255],
+                                                           opacity=opacity_array, rgb=False,
+                                                           show_scalar_bar=False, pickable=False)
             else:
                 self.remove_actor(plane['actor_rdslice'])
                 plane['actor_rdslice'] = None
@@ -1221,17 +1296,18 @@ class ImageCorrectionApp(BackgroundPlotter):
                 plane_origin = plane['origin']
                 origin_y = plane_origin[1]
                 plane['img_data'].origin = (self.shifts_x[idx] * self.delta_x + plane_origin[0], origin_y,
-                                                self.shifts_y[idx] * self.delta_y + plane_origin[2])
+                                            self.shifts_y[idx] * self.delta_y + plane_origin[2])
 
                 if self.show_rcontours_checkbox.isChecked():
                     self.remove_actor(plane['actor_contour'])
                     conts = plane['img_data'].contour(
-                        isosurfaces=self.levels / 100 * np.nanmax(plane['img_data']['scalar']), scalars=plane['img_data']['scalar'])
+                        isosurfaces=self.levels / 100 * np.nanmax(plane['img_data']['scalar']),
+                        scalars=plane['img_data']['scalar'])
                     plane['actor_contour'] = self.add_mesh(conts, color=colors[idx], opacity=self.opacity_contours,
-                                                               rgb=False,
-                                                               render_lines_as_tubes=True,
-                                                               line_width=self.contour_line_width,
-                                                               show_scalar_bar=False)
+                                                           rgb=False,
+                                                           render_lines_as_tubes=True,
+                                                           line_width=self.contour_line_width,
+                                                           show_scalar_bar=False)
                 else:
                     self.remove_actor(plane['actor_contour'])
                     plane['actor_contour'] = None
@@ -1239,8 +1315,8 @@ class ImageCorrectionApp(BackgroundPlotter):
                 if self.show_rimg_checkbox.isChecked():
                     self.remove_actor(plane['actor_rimg'])
                     plane['actor_rimg'] = self.add_mesh(plane['img_data'], cmap="viridis", opacity=self.opacity_rimg,
-                                                    rgb=False,
-                                                    show_scalar_bar=False, pickable=False)
+                                                        rgb=False,
+                                                        show_scalar_bar=False, pickable=False)
                 else:
                     self.remove_actor(plane['actor_rimg'])
                     plane['actor_rimg'] = None
@@ -1252,13 +1328,13 @@ class ImageCorrectionApp(BackgroundPlotter):
                     img_data['dslice_data'] = data_dslice
                     opacity_array = norm_to_percent(img_data['scalar'].ravel(order='F'),
                                                     minpercent=np.nanmin(self.levels))
-                    plane['actor_rdslice'] = self.add_mesh(img_data, scalars='dslice_data', cmap=self.cmap, clim=[0, 255],
-                                                        opacity=opacity_array, rgb=False,
-                                                        show_scalar_bar=False, pickable=False)
+                    plane['actor_rdslice'] = self.add_mesh(img_data, scalars='dslice_data', cmap=self.cmap,
+                                                           clim=[0, 255],
+                                                           opacity=opacity_array, rgb=False,
+                                                           show_scalar_bar=False, pickable=False)
                 else:
                     self.remove_actor(plane['actor_rdslice'])
                     plane['actor_rdslice'] = None
-
 
             # if self.show_densityslice_checkbox.isChecked():
             #     import IPython;
@@ -1484,6 +1560,7 @@ def main():
     parser.add_argument('--lwafile', type=str, help='Path to the LWA HDF5/FITS file.')
     parser.add_argument('--background_map', type=str, nargs='+', help='List of background map files.')
     parser.add_argument('--freqs', type=str, help='Comma-separated list of frequencies to display.')
+    parser.add_argument('--trajectory_file', type=str, default='', help='Path to the trajectory file')
 
     # Parse the arguments
     args = parser.parse_args()
@@ -1491,7 +1568,8 @@ def main():
     # Start the Qt application
     app = QApplication([])
     # Initialize the Image Correction Application with the provided arguments
-    imgcorr = ImageCorrectionApp(lwafile=args.lwafile, background_map=args.background_map, freqs_default=args.freqs)
+    imgcorr = ImageCorrectionApp(lwafile=args.lwafile, background_map=args.background_map, freqs_default=args.freqs,
+                                 trajectory_file=args.trajectory_file)
     imgcorr.show()
     # Execute the application and exit
     sys.exit(app.exec_())

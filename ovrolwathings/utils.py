@@ -173,7 +173,7 @@ def interpolate_rfrcorr_file(filename, target_times, methods=('linear', 'linear'
             # Calculate the ptp (peak-to-peak) for the second pair of subplots
             ylim2 = ax_parms[2].get_ylim()
             ylim3 = ax_parms[3].get_ylim()
-            ptp_23 = max(np.ptp(ylim2), np.ptp(ylim3))
+            ptp_23 = max(np.ptp(ylim2), np.ptp(ylim3),200)
 
             # Center the y-limits around the mean and set the same ptp
             mean_2 = np.mean(ylim2)

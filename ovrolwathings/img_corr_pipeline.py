@@ -94,62 +94,18 @@ def enhance_offdisk_corona(smap):
 
 
 def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', specmode='mfs', refrac_corr=False,
-         workdir='.', alpha=0.7, minpercent=5, draw_contours=False, fov=[16000, 16000], dual_panel=False,
+         workdir='.', scaled_suvi=True, show_ax_grid=True, alpha=0.7, minpercent=5, draw_contours=False,
+         fov=[16000, 16000], dual_panel=False,
          get_latest_version=False,
          timediff_tol=None,
-         rfrcor_parm_files=[], interp_method=('linear', 'linear'), overwrite=False):
+         snr_threshold=0.0,
+         rfrcor_parm_files=[], interp_method=('linear', 'linear'), trajectory_file='', overwrite=False):
     do_plot = False if refrac_corr else True
 
     try:
         os.chdir(workdir)
     except:
         pass
-
-    # do_plot = True
-
-    # timestamps = [datetime(2024, 6, 11, 22, 35, 48),
-    #               ]
-
-    # timestamps = [datetime(2024, 6, 5, 00, 23, 14),
-    #               ]
-
-    # # start_time = datetime(2024, 6, 1, 22, 12, 48)
-    # # end_time = datetime(2024, 6, 1, 0, 1, 0)
-    # # cadence = timedelta(seconds=10)
-    # # timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
-    # timestamps = [datetime(2024, 6, 1, 22, 12, 48),
-    #               ]
-    #
-    # # timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
-    # timestamps = [datetime(2024, 5, 25, 19, 35, 48),
-    #               ]
-
-    # timestamps = [
-    #     # datetime(2024, 5, 17, 21, 8, 48),
-    #     # datetime(2024, 5, 17, 21, 26, 31),
-    #     datetime(2024, 5, 17, 21, 36, 3),
-    #     datetime(2024, 5, 17, 21, 48, 7),
-    #     datetime(2024, 5, 17, 22, 0, 8),
-    #     datetime(2024, 5, 17, 22, 18, 11),
-    #     datetime(2024, 5, 17, 22, 30, 3),
-    #     datetime(2024, 5, 17, 22, 46, 6),
-    #     datetime(2024, 5, 17, 23, 6, 10),
-    #     datetime(2024, 5, 17, 23, 32, 25),
-    # ]  # [tidx:tidx + 4]
-
-    # mode = 'auto'  # 'fast' or 'slow'
-    # # mode = 'fast'  # 'fast' or 'slow'
-    # # timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
-    #
-    # timestamps = [
-    #                  datetime(2024, 6, 11,  22, 46, 7),
-    #                  datetime(2024, 6, 11,  22, 50, 8),
-    #              ]
-    # # mode = ['slow', 'slow', 'slow', 'slow', 'fast'][tidx]
-    # freqplt = 84 * u.MHz
-    # tb_threshold = 10e6
-    # mnorm = mcolors.LogNorm(vmin=10e6)
-    # level = 'lev1'
 
     downloaded_files = download_ovrolwa(timestamps=timestamps, mode=mode, level=level, filetype=filetype,
                                         timediff_tol=timediff_tol,
@@ -167,6 +123,7 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
         py_at_targets = []
 
     for tidx, (downloaded_file, timestamp) in enumerate(tqdm(zip(downloaded_files, timestamps))):
+        print(f'file: {downloaded_file}, timestamp: {timestamp}')
         # if tidx > 0: continue
         if downloaded_file is None: continue
         timestr = timestamp.strftime("%Y%m%dT%H%M%S")
@@ -200,6 +157,11 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
             cfreqsmhz = meta['cfreqs'] / 1e6
             lwamap = Map(data[0, 0, ...], meta['header'])
             figname = define_filename(lwamap, prefix="fig-", ext=".jpg").replace(' ', '_')
+            if 'figpath' not in locals():
+                figpath = figname.split('T')[0]
+                if not os.path.exists(figpath):
+                    os.makedirs(figpath, exist_ok=True)
+            figname = os.path.join(figpath, figname)
             if not overwrite and os.path.exists(figname): continue
 
             if rfrcor_parm_files:
@@ -218,7 +180,10 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
             lasco_c2_map = Map(lasco_c2_jp2_file)
             suvi_map = Map(suvi_jp2_file)
 
-            scaled_suvi_map = enhance_offdisk_corona(suvi_map)
+            if scaled_suvi:
+                scaled_suvi_map = enhance_offdisk_corona(suvi_map)
+            else:
+                scaled_suvi_map = suvi_map
 
             bkgmaps_orig = {'lasco_c3': lasco_c3_map, 'lasco_c2': lasco_c2_map, 'suvi_171': scaled_suvi_map}
 
@@ -250,6 +215,13 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
                                           frame=bkgmaps['lasco_c3'].coordinate_frame)
             bkgmaps['lasco_c3'] = bkgmaps['lasco_c3'].submap(bottom_left,
                                                              top_right=top_right)
+            try:
+                bkgmaps['lasco_c2'] = bkgmaps['lasco_c2'].submap(bottom_left,
+                                                                 top_right=top_right)
+                bkgmaps['suvi_171'] = bkgmaps['suvi_171'].submap(bottom_left,
+                                                                 top_right=top_right)
+            except:
+                pass
 
             # start = time.time()
             # corrected_data = correct_images(np.squeeze(data), px / delta_x, py / delta_y, cfreqsmhz)
@@ -277,6 +249,11 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
             for idx, freqplt in enumerate(freqplts):
                 fidx = np.nanargmin(np.abs(meta['cfreqs'] * cfreq_unit - freqplt))
 
+                if snr_threshold > 0:
+                    snr = np.nanmax(corrected_data[fidx, ...]) / np.nanstd(corrected_data[fidx, :10, :])
+                    print(f'freq: {freqplt}, snr: {snr}')
+                    if snr < snr_threshold:
+                        continue
                 lwamap = Map(corrected_data[fidx, ...], meta['header'])
                 projected_header_lwa = sunpy.map.make_fitswcs_header(lwamap.data.shape,
                                                                      projected_coord,
@@ -354,6 +331,8 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
                 ax.set_title("")
                 ax.set_xlabel('Solar-X [arcsec]')
                 ax.set_ylabel('Solar-Y [arcsec]')
+                ax.grid(show_ax_grid)
+
             # fig.tight_layout()
             fig.savefig(figname, dpi=200, bbox_inches='tight')
             plt.close(fig)
@@ -375,6 +354,7 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
                 '--lwafile', downloaded_file,
                 '--background_map', lasco_c3_jp2_file, lasco_c2_jp2_file, suvi_jp2_file,
                 '--freqs', ','.join(map(str, freqplts.value)),
+                '--trajectory_file', trajectory_file,
             ]
             print(' '.join(command))
             # Execute the command
@@ -386,14 +366,27 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
 if __name__ == "__main__":
     '''
     Example usage:
-        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --specmode mfs --workdir /Users/fisher/myworkspace --alpha 0.7 --minpercent 5 --dual_panel --get_latest_version --docorr
-        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype fits --specmode mfs --workdir /Users/fisher/myworkspace --alpha 0.7 --minpercent 5 --dual_panel --get_latest_version --docorr
-        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --specmode mfs --workdir /Users/fisher/myworkspace --alpha 0.7 --minpercent 5 --dual_panel --get_latest_version --rfrcor_parm_files refrac_corr_OVRO-LWA_2024-05-17T205846.json refrac_corr_OVRO-LWA_2024-05-18T003226.v2.json --interp_method linear --timediff_tol 30
-        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf --specmode mfs --workdir /Users/fisher/myworkspace --alpha 0.7 --minpercent 5 --fov 16000 16000 --dual_panel --get_latest_version --rfrcor_parm_files "refrac_corr_OVRO-LWA_2024-05-25T170200.json" "refrac_corr_OVRO-LWA_2024-05-25T183607.json" "refrac_corr_OVRO-LWA_2024-05-25T192406.json" "refrac_corr_OVRO-LWA_2024-05-25T195302.json" "refrac_corr_OVRO-LWA_2024-05-25T202407.json" "refrac_corr_OVRO-LWA_2024-05-25T204802.json" "refrac_corr_OVRO-LWA_2024-05-25T211407.json"  --interp_method cubic fit --timediff_tol 30  --overwrite
-        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode fast --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf --specmode fch --workdir /Users/fisher/myworkspace --alpha 0.7 --minpercent 25 --fov 16000 16000 --dual_panel --get_latest_version --rfrcor_parm_files "refrac_corr_OVRO-LWA_2024-05-25T170200.json" "refrac_corr_OVRO-LWA_2024-05-25T183607.json" "refrac_corr_OVRO-LWA_2024-05-25T192406.json" "refrac_corr_OVRO-LWA_2024-05-25T195302.json" "refrac_corr_OVRO-LWA_2024-05-25T202407.json" "refrac_corr_OVRO-LWA_2024-05-25T204802.json" "refrac_corr_OVRO-LWA_2024-05-25T211407.json"  --interp_method cubic fit --timediff_tol 8  --overwrite
-        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype fits  --specmode mfs --workdir /Users/fisher/myworkspace --alpha 0.7 --minpercent 5 --fov 24000 24000 --dual_panel --get_latest_version --rfrcor_parm_files  "refrac_corr_OVRO MMA_2024-02-28T164502.json" "refrac_corr_OVRO MMA_2024-02-28T165003.json" "refrac_corr_OVRO MMA_2024-02-28T165604.json" "refrac_corr_OVRO MMA_2024-02-28T170035.json" "refrac_corr_OVRO MMA_2024-02-28T170556.json" "refrac_corr_OVRO MMA_2024-02-28T171207.json" "refrac_corr_OVRO MMA_2024-02-28T171418.json" "refrac_corr_OVRO MMA_2024-02-28T172009.json" "refrac_corr_OVRO MMA_2024-02-28T172800.json" "refrac_corr_OVRO MMA_2024-02-28T173201.json" "refrac_corr_OVRO MMA_2024-02-28T173602.json" "refrac_corr_OVRO MMA_2024-02-28T174604.json" "refrac_corr_OVRO MMA_2024-02-28T175706.json" "refrac_corr_OVRO MMA_2024-02-28T180607.json" "refrac_corr_OVRO MMA_2024-02-28T181209.json" "refrac_corr_OVRO MMA_2024-02-28T181800.json" "refrac_corr_OVRO MMA_2024-02-28T182000.json" "refrac_corr_OVRO MMA_2024-02-28T182501.json" "refrac_corr_OVRO MMA_2024-02-28T182701.json" "refrac_corr_OVRO MMA_2024-02-28T183102.json" "refrac_corr_OVRO MMA_2024-02-28T183302.json" "refrac_corr_OVRO MMA_2024-02-28T184004.json" "refrac_corr_OVRO MMA_2024-02-28T184805.json" "refrac_corr_OVRO MMA_2024-02-28T185707.json" "refrac_corr_OVRO MMA_2024-02-28T190308.json" "refrac_corr_OVRO MMA_2024-02-28T191009.json" "refrac_corr_OVRO MMA_2024-02-28T191200.json" "refrac_corr_OVRO MMA_2024-02-28T191801.json" "refrac_corr_OVRO MMA_2024-02-28T193604.json" "refrac_corr_OVRO MMA_2024-02-28T194105.json" "refrac_corr_OVRO MMA_2024-02-28T195207.json" "refrac_corr_OVRO MMA_2024-02-28T195407.json" "refrac_corr_OVRO MMA_2024-02-28T200309.json" "refrac_corr_OVRO MMA_2024-02-28T201301.json" "refrac_corr_OVRO MMA_2024-02-28T201702.json" "refrac_corr_OVRO MMA_2024-02-28T202303.json" "refrac_corr_OVRO MMA_2024-02-28T203104.json" "refrac_corr_OVRO MMA_2024-02-28T205008.json" "refrac_corr_OVRO MMA_2024-02-28T205809.json"  --interp_method cubic --timediff_tol 30
-        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype fits  --specmode mfs --workdir /Users/fisher/myworkspace --alpha 0.7 --minpercent 5 --fov 22000 22000 --dual_panel --get_latest_version --rfrcor_parm_files  "refrac_corr_OVRO MMA_2024-02-28T164502.json" "refrac_corr_OVRO MMA_2024-02-28T165003.json" "refrac_corr_OVRO MMA_2024-02-28T165604.json" "refrac_corr_OVRO MMA_2024-02-28T170035.json" "refrac_corr_OVRO MMA_2024-02-28T170556.json" "refrac_corr_OVRO MMA_2024-02-28T171207.json" "refrac_corr_OVRO MMA_2024-02-28T171418.json" "refrac_corr_OVRO MMA_2024-02-28T172009.json" "refrac_corr_OVRO MMA_2024-02-28T172800.json" "refrac_corr_OVRO MMA_2024-02-28T173201.json" "refrac_corr_OVRO MMA_2024-02-28T173602.json" "refrac_corr_OVRO MMA_2024-02-28T174604.json" "refrac_corr_OVRO MMA_2024-02-28T175706.json" "refrac_corr_OVRO MMA_2024-02-28T180607.json" "refrac_corr_OVRO MMA_2024-02-28T181209.json" "refrac_corr_OVRO MMA_2024-02-28T181800.json" "refrac_corr_OVRO MMA_2024-02-28T182000.json" "refrac_corr_OVRO MMA_2024-02-28T182501.json" "refrac_corr_OVRO MMA_2024-02-28T182701.json" "refrac_corr_OVRO MMA_2024-02-28T183102.json" "refrac_corr_OVRO MMA_2024-02-28T183302.json" "refrac_corr_OVRO MMA_2024-02-28T184004.json" "refrac_corr_OVRO MMA_2024-02-28T184805.json" "refrac_corr_OVRO MMA_2024-02-28T185707.json" "refrac_corr_OVRO MMA_2024-02-28T190308.json" "refrac_corr_OVRO MMA_2024-02-28T191009.json" "refrac_corr_OVRO MMA_2024-02-28T191200.json" "refrac_corr_OVRO MMA_2024-02-28T191801.json" "refrac_corr_OVRO MMA_2024-02-28T193604.json" "refrac_corr_OVRO MMA_2024-02-28T194105.json" "refrac_corr_OVRO MMA_2024-02-28T195207.json" "refrac_corr_OVRO MMA_2024-02-28T195407.json" "refrac_corr_OVRO MMA_2024-02-28T200309.json" "refrac_corr_OVRO MMA_2024-02-28T201301.json" "refrac_corr_OVRO MMA_2024-02-28T201702.json" "refrac_corr_OVRO MMA_2024-02-28T202303.json" "refrac_corr_OVRO MMA_2024-02-28T203104.json" "refrac_corr_OVRO MMA_2024-02-28T203505.json" "refrac_corr_OVRO MMA_2024-02-28T204206.json" "refrac_corr_OVRO MMA_2024-02-28T205008.json" "refrac_corr_OVRO MMA_2024-02-28T205809.json" "refrac_corr_OVRO MMA_2024-02-28T210601.json" "refrac_corr_OVRO MMA_2024-02-28T211502.json"  --interp_method cubic fit --timediff_tol 30
-         
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --dual_panel --get_latest_version --docorr
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype fits --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --dual_panel --get_latest_version --docorr --trajectory_file /Volumes/sandiskSSD/work/research_data/OVRO-LWA_20240228_CME/LASCO/CME_height_trajs.pkl
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --dual_panel --get_latest_version --docorr --trajectory_file /Volumes/sandiskSSD/work/research_data/OVRO-LWA_20240517_CME/LASCO/CME_height_trajs.pkl
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --dual_panel --get_latest_version --rfrcor_parm_files refrac_corr_OVRO-LWA_2024-05-17T205846.json refrac_corr_OVRO-LWA_2024-05-18T003226.v2.json --interp_method linear --timediff_tol 30
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --fov 16000 16000 --dual_panel --get_latest_version --rfrcor_parm_files "refrac_corr_OVRO-LWA_2024-05-25T170200.json" "refrac_corr_OVRO-LWA_2024-05-25T183607.json" "refrac_corr_OVRO-LWA_2024-05-25T192406.json" "refrac_corr_OVRO-LWA_2024-05-25T195302.json" "refrac_corr_OVRO-LWA_2024-05-25T202407.json" "refrac_corr_OVRO-LWA_2024-05-25T204802.json" "refrac_corr_OVRO-LWA_2024-05-25T211407.json"  --interp_method cubic fit --timediff_tol 30  --overwrite
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode fast --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf --specmode fch --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 25 --fov 16000 16000 --dual_panel --get_latest_version --rfrcor_parm_files "refrac_corr_OVRO-LWA_2024-05-25T170200.json" "refrac_corr_OVRO-LWA_2024-05-25T183607.json" "refrac_corr_OVRO-LWA_2024-05-25T192406.json" "refrac_corr_OVRO-LWA_2024-05-25T195302.json" "refrac_corr_OVRO-LWA_2024-05-25T202407.json" "refrac_corr_OVRO-LWA_2024-05-25T204802.json" "refrac_corr_OVRO-LWA_2024-05-25T211407.json"  --interp_method cubic fit --timediff_tol 8  --overwrite
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype fits  --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --fov 24000 24000 --dual_panel --get_latest_version --rfrcor_parm_files  "refrac_corr_OVRO MMA_2024-02-28T164502.json" "refrac_corr_OVRO MMA_2024-02-28T165003.json" "refrac_corr_OVRO MMA_2024-02-28T165604.json" "refrac_corr_OVRO MMA_2024-02-28T170035.json" "refrac_corr_OVRO MMA_2024-02-28T170556.json" "refrac_corr_OVRO MMA_2024-02-28T171207.json" "refrac_corr_OVRO MMA_2024-02-28T171418.json" "refrac_corr_OVRO MMA_2024-02-28T172009.json" "refrac_corr_OVRO MMA_2024-02-28T172800.json" "refrac_corr_OVRO MMA_2024-02-28T173201.json" "refrac_corr_OVRO MMA_2024-02-28T173602.json" "refrac_corr_OVRO MMA_2024-02-28T174604.json" "refrac_corr_OVRO MMA_2024-02-28T175706.json" "refrac_corr_OVRO MMA_2024-02-28T180607.json" "refrac_corr_OVRO MMA_2024-02-28T181209.json" "refrac_corr_OVRO MMA_2024-02-28T181800.json" "refrac_corr_OVRO MMA_2024-02-28T182000.json" "refrac_corr_OVRO MMA_2024-02-28T182501.json" "refrac_corr_OVRO MMA_2024-02-28T182701.json" "refrac_corr_OVRO MMA_2024-02-28T183102.json" "refrac_corr_OVRO MMA_2024-02-28T183302.json" "refrac_corr_OVRO MMA_2024-02-28T184004.json" "refrac_corr_OVRO MMA_2024-02-28T184805.json" "refrac_corr_OVRO MMA_2024-02-28T185707.json" "refrac_corr_OVRO MMA_2024-02-28T190308.json" "refrac_corr_OVRO MMA_2024-02-28T191009.json" "refrac_corr_OVRO MMA_2024-02-28T191200.json" "refrac_corr_OVRO MMA_2024-02-28T191801.json" "refrac_corr_OVRO MMA_2024-02-28T193604.json" "refrac_corr_OVRO MMA_2024-02-28T194105.json" "refrac_corr_OVRO MMA_2024-02-28T195207.json" "refrac_corr_OVRO MMA_2024-02-28T195407.json" "refrac_corr_OVRO MMA_2024-02-28T200309.json" "refrac_corr_OVRO MMA_2024-02-28T201301.json" "refrac_corr_OVRO MMA_2024-02-28T201702.json" "refrac_corr_OVRO MMA_2024-02-28T202303.json" "refrac_corr_OVRO MMA_2024-02-28T203104.json" "refrac_corr_OVRO MMA_2024-02-28T205008.json" "refrac_corr_OVRO MMA_2024-02-28T205809.json"  --interp_method cubic --timediff_tol 30
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype fits  --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --fov 22000 22000 --dual_panel --get_latest_version --rfrcor_parm_files  "refrac_corr_OVRO MMA_2024-02-28T164502.json" "refrac_corr_OVRO MMA_2024-02-28T165003.json" "refrac_corr_OVRO MMA_2024-02-28T165604.json" "refrac_corr_OVRO MMA_2024-02-28T170035.json" "refrac_corr_OVRO MMA_2024-02-28T170556.json" "refrac_corr_OVRO MMA_2024-02-28T171207.json" "refrac_corr_OVRO MMA_2024-02-28T171418.json" "refrac_corr_OVRO MMA_2024-02-28T172009.json" "refrac_corr_OVRO MMA_2024-02-28T172800.json" "refrac_corr_OVRO MMA_2024-02-28T173201.json" "refrac_corr_OVRO MMA_2024-02-28T173602.json" "refrac_corr_OVRO MMA_2024-02-28T174604.json" "refrac_corr_OVRO MMA_2024-02-28T175004.json" "refrac_corr_OVRO MMA_2024-02-28T175706.json" "refrac_corr_OVRO MMA_2024-02-28T180607.json" "refrac_corr_OVRO MMA_2024-02-28T181209.json" "refrac_corr_OVRO MMA_2024-02-28T181800.json" "refrac_corr_OVRO MMA_2024-02-28T182000.json" "refrac_corr_OVRO MMA_2024-02-28T182501.json" "refrac_corr_OVRO MMA_2024-02-28T182701.json" "refrac_corr_OVRO MMA_2024-02-28T183102.json" "refrac_corr_OVRO MMA_2024-02-28T183302.json" "refrac_corr_OVRO MMA_2024-02-28T184004.json" "refrac_corr_OVRO MMA_2024-02-28T184805.json" "refrac_corr_OVRO MMA_2024-02-28T185707.json" "refrac_corr_OVRO MMA_2024-02-28T190308.json" "refrac_corr_OVRO MMA_2024-02-28T191009.json" "refrac_corr_OVRO MMA_2024-02-28T191200.json" "refrac_corr_OVRO MMA_2024-02-28T191801.json" "refrac_corr_OVRO MMA_2024-02-28T193604.json" "refrac_corr_OVRO MMA_2024-02-28T194105.json" "refrac_corr_OVRO MMA_2024-02-28T195207.json" "refrac_corr_OVRO MMA_2024-02-28T195407.json" "refrac_corr_OVRO MMA_2024-02-28T200309.json" "refrac_corr_OVRO MMA_2024-02-28T201301.json" "refrac_corr_OVRO MMA_2024-02-28T201702.json" "refrac_corr_OVRO MMA_2024-02-28T202303.json" "refrac_corr_OVRO MMA_2024-02-28T203104.json" "refrac_corr_OVRO MMA_2024-02-28T203505.json" "refrac_corr_OVRO MMA_2024-02-28T204206.json" "refrac_corr_OVRO MMA_2024-02-28T205008.json" "refrac_corr_OVRO MMA_2024-02-28T205809.json" "refrac_corr_OVRO MMA_2024-02-28T210601.json" "refrac_corr_OVRO MMA_2024-02-28T211502.json"  --interp_method cubic fit --timediff_tol 30
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype fits  --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --fov 22000 22000 --dual_panel --get_latest_version --rfrcor_parm_files  "refrac_corr_OVRO MMA_2024-02-28T164502.json" "refrac_corr_OVRO MMA_2024-02-28T165003.json" "refrac_corr_OVRO MMA_2024-02-28T165604.json" "refrac_corr_OVRO MMA_2024-02-28T170035.json" "refrac_corr_OVRO MMA_2024-02-28T170556.json" "refrac_corr_OVRO MMA_2024-02-28T171207.json" "refrac_corr_OVRO MMA_2024-02-28T171418.json" "refrac_corr_OVRO MMA_2024-02-28T172009.json" "refrac_corr_OVRO MMA_2024-02-28T172800.json" "refrac_corr_OVRO MMA_2024-02-28T173201.json" "refrac_corr_OVRO MMA_2024-02-28T173602.json" "refrac_corr_OVRO MMA_2024-02-28T174604.json" "refrac_corr_OVRO MMA_2024-02-28T175004.json" "refrac_corr_OVRO MMA_2024-02-28T175706.json" "refrac_corr_OVRO MMA_2024-02-28T180607.json" "refrac_corr_OVRO MMA_2024-02-28T181209.json" "refrac_corr_OVRO MMA_2024-02-28T181800.json" "refrac_corr_OVRO MMA_2024-02-28T182000.json" "refrac_corr_OVRO MMA_2024-02-28T182501.json" "refrac_corr_OVRO MMA_2024-02-28T182701.json" "refrac_corr_OVRO MMA_2024-02-28T183102.json" "refrac_corr_OVRO MMA_2024-02-28T183302.json" "refrac_corr_OVRO MMA_2024-02-28T184004.json" "refrac_corr_OVRO MMA_2024-02-28T184805.json" "refrac_corr_OVRO MMA_2024-02-28T185707.json" "refrac_corr_OVRO MMA_2024-02-28T190308.json" "refrac_corr_OVRO MMA_2024-02-28T191009.json" "refrac_corr_OVRO MMA_2024-02-28T191200.json" "refrac_corr_OVRO MMA_2024-02-28T191801.json" "refrac_corr_OVRO MMA_2024-02-28T193604.json" "refrac_corr_OVRO MMA_2024-02-28T194105.json" "refrac_corr_OVRO MMA_2024-02-28T195207.json" "refrac_corr_OVRO MMA_2024-02-28T195407.json" "refrac_corr_OVRO MMA_2024-02-28T200309.json" "refrac_corr_OVRO MMA_2024-02-28T201301.json" "refrac_corr_OVRO MMA_2024-02-28T201702.json" "refrac_corr_OVRO MMA_2024-02-28T202303.json" "refrac_corr_OVRO MMA_2024-02-28T203104.json" "refrac_corr_OVRO MMA_2024-02-28T203505.json" "refrac_corr_OVRO MMA_2024-02-28T204206.json" "refrac_corr_OVRO MMA_2024-02-28T205008.json" "refrac_corr_OVRO MMA_2024-02-28T205809.json" "refrac_corr_OVRO MMA_2024-02-28T210601.json" "refrac_corr_OVRO MMA_2024-02-28T211502.json"  --interp_method cubic slinear --timediff_tol 30
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf  --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --fov 16000 16000 --dual_panel --get_latest_version --rfrcor_parm_files  "refrac_corr_OVRO-LWA_2024-05-17T205846.json" "refrac_corr_OVRO-LWA_2024-05-17T210137.json" "refrac_corr_OVRO-LWA_2024-05-17T210307.json" "refrac_corr_OVRO-LWA_2024-05-17T210638.json" "refrac_corr_OVRO-LWA_2024-05-17T210848.json" "refrac_corr_OVRO-LWA_2024-05-17T212631.json" "refrac_corr_OVRO-LWA_2024-05-17T213603.json" "refrac_corr_OVRO-LWA_2024-05-17T214805.json" "refrac_corr_OVRO-LWA_2024-05-17T220010.json" "refrac_corr_OVRO-LWA_2024-05-17T221801.json" "refrac_corr_OVRO-LWA_2024-05-17T223005.json" "refrac_corr_OVRO-LWA_2024-05-17T224606.json" "refrac_corr_OVRO-LWA_2024-05-17T225608.json" "refrac_corr_OVRO-LWA_2024-05-17T230600.json" "refrac_corr_OVRO-LWA_2024-05-17T233225.json" "refrac_corr_OVRO-LWA_2024-05-17T235138.json" "refrac_corr_OVRO-LWA_2024-05-18T003226.json" --interp_method slinear fit --timediff_tol 30 --overwrite
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf  --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --fov 16000 16000 --dual_panel --get_latest_version --rfrcor_parm_files  "refrac_corr_OVRO-LWA_2024-05-17T205606.json" "refrac_corr_OVRO-LWA_2024-05-17T205846.json" "refrac_corr_OVRO-LWA_2024-05-17T210137.json" "refrac_corr_OVRO-LWA_2024-05-17T210307.json" "refrac_corr_OVRO-LWA_2024-05-17T210638.json" "refrac_corr_OVRO-LWA_2024-05-17T210848.json" "refrac_corr_OVRO-LWA_2024-05-17T212631.json" "refrac_corr_OVRO-LWA_2024-05-17T213603.json" "refrac_corr_OVRO-LWA_2024-05-17T214805.json" "refrac_corr_OVRO-LWA_2024-05-17T215138.json" "refrac_corr_OVRO-LWA_2024-05-17T220010.json" "refrac_corr_OVRO-LWA_2024-05-17T221801.json" "refrac_corr_OVRO-LWA_2024-05-17T223005.json" "refrac_corr_OVRO-LWA_2024-05-17T224135.json" "refrac_corr_OVRO-LWA_2024-05-17T224606.json" "refrac_corr_OVRO-LWA_2024-05-17T225608.json" "refrac_corr_OVRO-LWA_2024-05-17T230600.json" "refrac_corr_OVRO-LWA_2024-05-17T233225.json" "refrac_corr_OVRO-LWA_2024-05-17T235138.json" "refrac_corr_OVRO-LWA_2024-05-18T003226.json" --interp_method slinear fit --timediff_tol 30 --overwrite
+        
+        ## type IV burst on 2024-05-14. PSP type IV
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf  --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --fov 22000 22000 --dual_panel --get_latest_version --rfrcor_parm_files   "refrac_corr_OVRO-LWA_2024-05-14T160704.json" "refrac_corr_OVRO-LWA_2024-05-14T194505.json" "refrac_corr_OVRO-LWA_2024-05-14T204906.json"  --interp_method cubic slinear --timediff_tol 30
+        
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf  --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --fov 16000 16000 --dual_panel --get_latest_version --rfrcor_parm_files  "refrac_corr_OVRO-LWA_2024-05-17T205606.json" "refrac_corr_OVRO-LWA_2024-05-17T205846.json" "refrac_corr_OVRO-LWA_2024-05-17T210137.json" "refrac_corr_OVRO-LWA_2024-05-17T210307.json" "refrac_corr_OVRO-LWA_2024-05-17T210638.json" "refrac_corr_OVRO-LWA_2024-05-17T210848.json" "refrac_corr_OVRO-LWA_2024-05-17T224135.json" "refrac_corr_OVRO-LWA_2024-05-17T235138.json" "refrac_corr_OVRO-LWA_2024-05-18T003226.json" --interp_method fit fit --timediff_tol 30 --overwrite
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode fast --freq 34 39 43 48 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf  --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --fov 16000 16000 --dual_panel --get_latest_version --rfrcor_parm_files  "refrac_corr_OVRO-LWA_2024-05-17T205606.json" "refrac_corr_OVRO-LWA_2024-05-17T205846.json" "refrac_corr_OVRO-LWA_2024-05-17T210137.json" "refrac_corr_OVRO-LWA_2024-05-17T210307.json" "refrac_corr_OVRO-LWA_2024-05-17T210638.json" "refrac_corr_OVRO-LWA_2024-05-17T210848.json" "refrac_corr_OVRO-LWA_2024-05-17T224135.json" "refrac_corr_OVRO-LWA_2024-05-17T235138.json" "refrac_corr_OVRO-LWA_2024-05-18T003226.json" --interp_method fit fit --timediff_tol 8 --overwrite
+        
+        ##blow up of the CME bubble on 2024-05-25
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode fast --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf  --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.5 --snr_threshold 100 --minpercent 5 --fov 6000 6000 --dual_panel --get_latest_version --rfrcor_parm_files  "refrac_corr_OVRO-LWA_2024-05-17T205606.json" "refrac_corr_OVRO-LWA_2024-05-17T205846.json" "refrac_corr_OVRO-LWA_2024-05-17T210137.json" "refrac_corr_OVRO-LWA_2024-05-17T210307.json" "refrac_corr_OVRO-LWA_2024-05-17T210638.json" "refrac_corr_OVRO-LWA_2024-05-17T210848.json" "refrac_corr_OVRO-LWA_2024-05-17T224135.json" "refrac_corr_OVRO-LWA_2024-05-17T235138.json" "refrac_corr_OVRO-LWA_2024-05-18T003226.json" --interp_method fit fit --timediff_tol 8 --overwrite
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode fast --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf  --specmode mfs --workdir /Users/fisher/myworkspace --alpha 0.7 --snr_threshold 100 --minpercent 5 --fov 6000 6000 --dual_panel --get_latest_version --rfrcor_parm_files  "refrac_corr_OVRO-LWA_2024-05-17T205606.json" "refrac_corr_OVRO-LWA_2024-05-17T205846.json" "refrac_corr_OVRO-LWA_2024-05-17T210137.json" "refrac_corr_OVRO-LWA_2024-05-17T210307.json" "refrac_corr_OVRO-LWA_2024-05-17T210638.json" "refrac_corr_OVRO-LWA_2024-05-17T210848.json" "refrac_corr_OVRO-LWA_2024-05-17T224135.json" "refrac_corr_OVRO-LWA_2024-05-17T235138.json" "refrac_corr_OVRO-LWA_2024-05-18T003226.json" --interp_method fit fit --timediff_tol 8 --overwrite
     '''
     parser = argparse.ArgumentParser(
         description="Process OVROLWA solar data with optional plotting and refraction correction.")
@@ -410,7 +403,10 @@ if __name__ == "__main__":
     parser.add_argument('--filetype', type=str, default='hdf', help='File type to download. Options: hdf, fits')
     parser.add_argument('--specmode', type=str, default='mfs', help='Image mode to download. Options: mfs, fch')
     parser.add_argument('--workdir', type=str, default='.', help='Path to refraction correction parameters')
+    parser.add_argument('--scaled_suvi', action='store_true', help='Scale the SUVI images')
+    parser.add_argument('--show_ax_grid', action='store_true', help='Show axis grid on the images')
     parser.add_argument('--alpha', type=float, default=0.7, help='Alpha value for transparency')
+    parser.add_argument('--snr_threshold', type=float, default=0.0, help='SNR threshold for the radio images')
     parser.add_argument('--minpercent', type=int, default=5,
                         help='Minimum value as a percentage of the data maximum for the colormap')
     parser.add_argument('--draw_contours', action='store_true', help='Draw contours on the images')
@@ -422,6 +418,7 @@ if __name__ == "__main__":
     parser.add_argument('--interp_method', type=str, nargs=2, default=['linear', 'linear'],
                         help='Interpolation methods for refraction correction parameters for pi1 and pi2 respectively (i stands for x and y). Options: linear, nearest, slinear, cubic, quadratic, fit. If one method is provided, it will be used for both pi1 and pi2.')
     parser.add_argument('--overwrite', action='store_true', help='Overwrite existing image jpg files')
+    parser.add_argument('--trajectory_file', type=str, default='', help='Path to the trajectory file')
 
     args = parser.parse_args()
 
@@ -429,49 +426,68 @@ if __name__ == "__main__":
         timestamps = [datetime.fromisoformat(ts) for ts in args.timestamps]
     else:
 
-        ### 2024-05-17
-        # timestamps = [
-        #     # datetime(2024, 5, 17, 20, 58, 46),
-        #     # datetime(2024, 5, 17, 21, 1, 37),
-        #     # datetime(2024, 5, 17, 21, 3, 7),
-        #     # datetime(2024, 5, 17, 21, 6, 38),
-        #     # datetime(2024, 5, 17, 21, 8, 48),
-        #     # datetime(2024, 5, 17, 21, 18, 0),
-        #     # datetime(2024, 5, 17, 21, 26, 31),
-        #     # datetime(2024, 5, 17, 21, 36, 3),
-        #     # datetime(2024, 5, 17, 21, 48, 7),
-        #     # datetime(2024, 5, 17, 22, 0, 8),
-        #     # datetime(2024, 5, 17, 22, 18, 11),
-        #     # datetime(2024, 5, 17, 22, 30, 3),
-        #     # datetime(2024, 5, 17, 22, 46, 6),
-        #     # datetime(2024, 5, 17, 22, 56, 8),
-        #     # datetime(2024, 5, 17, 23, 6, 10),
-        #     # datetime(2024, 5, 17, 23, 32, 25),
-        #     # datetime(2024, 5, 17, 23, 51, 38),
-        #     # datetime(2024, 5, 18, 0, 32, 26),
-        # ]  # [tidx:tidx + 4]
-        # start_time = datetime(2024, 5, 17, 20, 55, 0)
-        # end_time = datetime(2024, 5, 18, 0, 33, 0)
-        # cadence = timedelta(seconds=60)
-        # timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
-
-        ### 2024-05-25
+        ## 2024-05-17
         timestamps = [
-            # datetime(2024, 5, 25, 17, 2, 0),
-            datetime(2024, 5, 25, 18, 36, 7),
-            # datetime(2024, 5, 25, 19, 24, 6),
-            datetime(2024, 5, 25, 19, 53, 2),
-            # datetime(2024, 5, 25, 20, 24, 7),
-            # datetime(2024, 5, 25, 20, 48, 2),
-            datetime(2024, 5, 25, 21, 14, 0),
-            # # datetime(2024, 5, 25, 22, 33, 1),
+            datetime(2024, 5, 17, 20, 56, 00),
+            datetime(2024, 5, 17, 20, 58, 46),
+            datetime(2024, 5, 17, 21, 1, 37),
+            datetime(2024, 5, 17, 21, 3, 7),
+            datetime(2024, 5, 17, 21, 6, 38),
+            datetime(2024, 5, 17, 21, 8, 48),
+            # datetime(2024, 5, 17, 21, 26, 31),
+            # datetime(2024, 5, 17, 21, 36, 3),
+            # datetime(2024, 5, 17, 21, 48, 7),
+            # datetime(2024, 5, 17, 21, 51, 36),
+            # datetime(2024, 5, 17, 22, 0, 8),
+            # datetime(2024, 5, 17, 22, 18, 11),
+            # datetime(2024, 5, 17, 22, 30, 3),
+            datetime(2024, 5, 17, 22, 41, 35),
+            # datetime(2024, 5, 17, 22, 46, 6),
+            # # datetime(2024, 5, 17, 22, 56, 8),
+            # datetime(2024, 5, 17, 23, 6, 10),
+            # datetime(2024, 5, 17, 23, 32, 25),
+            datetime(2024, 5, 17, 23, 51, 38),
+            datetime(2024, 5, 18, 0, 32, 26),
         ]
-        start_time = datetime(2024, 5, 25, 17, 0, 0)
-        end_time = datetime(2024, 5, 25, 21, 14, 0)
+
+        start_time = datetime(2024, 5, 17, 20, 55, 0)
+        end_time = datetime(2024, 5, 17, 23, 43, 0)
+        ##blow up of the CME bubble on 2024-05-25
+        start_time = datetime(2024, 5, 17, 21, 4, 0)
+        start_time = datetime(2024, 5, 17, 21, 9, 0)
+        end_time = datetime(2024, 5, 17, 21, 10, 0)
+        # cadence = timedelta(seconds=60)
         cadence = timedelta(seconds=10)
         timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
 
-        # ### 2024-02-28
+        # ### 2024-05-25
+        # timestamps = [
+        #     # datetime(2024, 5, 25, 17, 2, 0),
+        #     datetime(2024, 5, 25, 18, 36, 7),
+        #     # datetime(2024, 5, 25, 19, 24, 6),
+        #     datetime(2024, 5, 25, 19, 53, 2),
+        #     # datetime(2024, 5, 25, 20, 24, 7),
+        #     # datetime(2024, 5, 25, 20, 48, 2),
+        #     datetime(2024, 5, 25, 21, 14, 0),
+        #     # # datetime(2024, 5, 25, 22, 33, 1),
+        # ]
+        # start_time = datetime(2024, 5, 25, 17, 0, 0)
+        # end_time = datetime(2024, 5, 25, 21, 14, 0)
+        # cadence = timedelta(seconds=10)
+        # timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
+
+        ### 2024-05-14
+        timestamps = [
+            datetime(2024, 5, 14, 16, 7, 0),
+            datetime(2024, 5, 14, 19, 45, 0),
+            datetime(2024, 5, 14, 20, 49, 0),
+        ]
+        start_time = datetime(2024, 5, 14, 15, 30, 0)
+        end_time = datetime(2024, 5, 14, 20, 40, 0)
+        cadence = timedelta(seconds=60)
+        timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
+
+        ### 2024-02-28
         # timestamps = [
         #     # datetime(2024, 2, 28, 16, 45, 7),
         #     # datetime(2024, 2, 28, 16, 50, 3),
@@ -485,6 +501,7 @@ if __name__ == "__main__":
         #     # datetime(2024, 2, 28, 17, 32, 1),
         #     # datetime(2024, 2, 28, 17, 36, 27),
         #     # datetime(2024, 2, 28, 17, 45, 49),
+        #     # datetime(2024, 2, 28, 17, 50, 4),
         #     # datetime(2024, 2, 28, 17, 56, 41),
         #     # datetime(2024, 2, 28, 18, 5, 52),
         #     # datetime(2024, 2, 28, 18, 12, 34),
@@ -496,26 +513,26 @@ if __name__ == "__main__":
         #     # datetime(2024, 2, 28, 18, 33, 2),
         #     # datetime(2024, 2, 28, 18, 39, 19),
         #     # datetime(2024, 2, 28, 18, 49, 0),
-        #     datetime(2024, 2, 28, 18, 56, 42),
+        #     # datetime(2024, 2, 28, 18, 56, 42),
         #     # datetime(2024, 2, 28, 19, 3, 13),
         #     # datetime(2024, 2, 28, 19, 9, 34),
         #     # datetime(2024, 2, 28, 19, 12, 0),
         #     # datetime(2024, 2, 28, 19, 18, 6),
-        #     # datetime(2024, 2, 28, 19, 36, 9),
-        #     # datetime(2024, 2, 28, 19, 40, 50),
-        #     # datetime(2024, 2, 28, 19, 51, 42),
-        #     # datetime(2024, 2, 28, 19, 54, 7),
-        #     # datetime(2024, 2, 28, 20, 3, 14),
-        #     # datetime(2024, 2, 28, 20, 13, 6),
-        #     # datetime(2024, 2, 28, 20, 17, 2),
-        #     # datetime(2024, 2, 28, 20, 23, 8),
-        #     # datetime(2024, 2, 28, 20, 31, 9),
-        #     # datetime(2024, 2, 28, 20, 35, 5),
-        #     # datetime(2024, 2, 28, 20, 42, 6),
-        #     # datetime(2024, 2, 28, 20, 50, 8),
-        #     # datetime(2024, 2, 28, 20, 58, 14),
-        #     # datetime(2024, 2, 28, 21, 6, 6),
-        #     # datetime(2024, 2, 28, 21, 15, 6)
+        #     datetime(2024, 2, 28, 19, 36, 9),
+        #     datetime(2024, 2, 28, 19, 40, 50),
+        #     datetime(2024, 2, 28, 19, 51, 42),
+        #     datetime(2024, 2, 28, 19, 54, 7),
+        #     datetime(2024, 2, 28, 20, 3, 14),
+        #     datetime(2024, 2, 28, 20, 13, 6),
+        #     datetime(2024, 2, 28, 20, 17, 2),
+        #     datetime(2024, 2, 28, 20, 23, 8),
+        #     datetime(2024, 2, 28, 20, 31, 9),
+        #     datetime(2024, 2, 28, 20, 35, 5),
+        #     datetime(2024, 2, 28, 20, 42, 6),
+        #     datetime(2024, 2, 28, 20, 50, 8),
+        #     datetime(2024, 2, 28, 20, 58, 14),
+        #     datetime(2024, 2, 28, 21, 6, 6),
+        #     datetime(2024, 2, 28, 21, 15, 6)
         # ]
         #
         # start_time = datetime(2024, 2, 28, 16, 45, 0)
@@ -540,6 +557,8 @@ if __name__ == "__main__":
     # Filter out non-existing files
     rfrcor_parm_files = [f for f in rfrcor_parm_files if os.path.exists(f)]
 
+    trajectory_file = args.trajectory_file if os.path.exists(args.trajectory_file) else ''
+
     main(args.mode, timestamps, freqplts,
          level=args.level,
          filetype=args.filetype,
@@ -547,7 +566,10 @@ if __name__ == "__main__":
          mnorm=mnorm,
          refrac_corr=args.docorr,
          workdir=args.workdir,
+         scaled_suvi=args.scaled_suvi,
+         show_ax_grid = args.show_ax_grid,
          alpha=args.alpha,
+         snr_threshold=args.snr_threshold,
          minpercent=args.minpercent,
          draw_contours=args.draw_contours,
          fov=args.fov,
@@ -555,4 +577,4 @@ if __name__ == "__main__":
          get_latest_version=args.get_latest_version,
          timediff_tol=args.timediff_tol,
          rfrcor_parm_files=rfrcor_parm_files,
-         interp_method=args.interp_method, overwrite=args.overwrite)
+         interp_method=args.interp_method, trajectory_file=trajectory_file, overwrite=args.overwrite)
