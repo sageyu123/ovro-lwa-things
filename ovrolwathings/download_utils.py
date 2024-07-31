@@ -20,7 +20,7 @@ def find_nearest_file(files, timestamp, time_format, diff_tol, specmode='mfs', f
     if filetype == 'hdf':
         file_pattern = re.compile(rf".*\.lev\d+_{specmode}_\d+s\.(\d{{4}}-\d{{2}}-\d{{2}}T\d{{6}}Z)\.image_I\.hdf")
     elif filetype == 'fits':
-        file_pattern = re.compile(rf".*\.lev\d+_{specmode}_\d+s\.(\d{{4}}-\d{{2}}-\d{{2}}T\d{{6}}Z)\.image\.fits")
+        file_pattern = re.compile(rf".*\.lev\d+_{specmode}_\d+s\.(\d{{4}}-\d{{2}}-\d{{2}}T\d{{6}}Z)\.image_I\.fits")
     else:
         print(f"Invalid filetype: {filetype}. Must be 'hdf' or 'fits'. Defaulting to 'hdf'.")
         file_pattern = re.compile(rf".*\.lev\d+_{specmode}_\d+s\.(\d{{4}}-\d{{2}}-\d{{2}}T\d{{6}}Z)\.image_I\.hdf")
@@ -83,6 +83,7 @@ def download_files(user, hostname, files, remote_dirs, local_base_dirs, specmode
 
         # Check if the file already exists locally
         local_file_path = os.path.join(local_dir, file)
+
         if not os.path.exists(local_file_path):
             # Download the file
             os.system(f"scp {user}@{hostname}:{remote_dir}/{file} {local_file_path}")
@@ -97,7 +98,8 @@ def get_local_file_list(local_base_dir, specmode, filetype='hdf'):
     if filetype == 'hdf':
         filenamesuffix = '.image_I.hdf'
     elif filetype == 'fits':
-        filenamesuffix = '.image.fits'
+        # filenamesuffix = '.image.fits'
+        filenamesuffix = '.image_I.fits'
     else:
         filenamesuffix = '.image_I.hdf'
 
@@ -105,6 +107,7 @@ def get_local_file_list(local_base_dir, specmode, filetype='hdf'):
     for root, _, files in os.walk(local_base_dir):
         for file in files:
             if specmode in file and file.endswith(filenamesuffix):
+                print(os.path.relpath(os.path.join(root, file), local_base_dir))
                 local_files.append(os.path.relpath(os.path.join(root, file), local_base_dir))
     return local_files
 
@@ -159,7 +162,6 @@ def download_ovrolwa(starttime=None, endtime=None, cadence=None, timestamps=None
     remote_dir_template = "/nas6/ovro-lwa-data/{filetype}/{mode}/{level}/{year}/{month:02d}/{day:02d}"
     local_base_dir_template = f"{data_dir}/ovro-lwa-data/{filetype}/{{mode}}/{level}/"
     time_format = "%Y-%m-%dT%H%M%SZ"
-
     # Set default diff_tol based on mode if not provided
     if timediff_tol is None:
         slow_diff_tol = 60 * u.second

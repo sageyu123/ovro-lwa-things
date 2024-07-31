@@ -6,5 +6,6 @@ requires = ["setuptools",
 "scipy",
     "matplotlib",
     "sunpy",
-    "paramiko"
+    "paramiko",
+    "pyvista"
 ]

@@ -367,6 +367,7 @@ if __name__ == "__main__":
     '''
     Example usage:
         python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --dual_panel --get_latest_version --docorr
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype fits --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --dual_panel --get_latest_version --docorr
         python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype fits --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --dual_panel --get_latest_version --docorr --trajectory_file /Volumes/sandiskSSD/work/research_data/OVRO-LWA_20240228_CME/LASCO/CME_height_trajs.pkl
         python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --dual_panel --get_latest_version --docorr --trajectory_file /Volumes/sandiskSSD/work/research_data/OVRO-LWA_20240517_CME/LASCO/CME_height_trajs.pkl
         python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --dual_panel --get_latest_version --rfrcor_parm_files refrac_corr_OVRO-LWA_2024-05-17T205846.json refrac_corr_OVRO-LWA_2024-05-18T003226.v2.json --interp_method linear --timediff_tol 30
@@ -379,7 +380,15 @@ if __name__ == "__main__":
         python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf  --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --fov 16000 16000 --dual_panel --get_latest_version --rfrcor_parm_files  "refrac_corr_OVRO-LWA_2024-05-17T205606.json" "refrac_corr_OVRO-LWA_2024-05-17T205846.json" "refrac_corr_OVRO-LWA_2024-05-17T210137.json" "refrac_corr_OVRO-LWA_2024-05-17T210307.json" "refrac_corr_OVRO-LWA_2024-05-17T210638.json" "refrac_corr_OVRO-LWA_2024-05-17T210848.json" "refrac_corr_OVRO-LWA_2024-05-17T212631.json" "refrac_corr_OVRO-LWA_2024-05-17T213603.json" "refrac_corr_OVRO-LWA_2024-05-17T214805.json" "refrac_corr_OVRO-LWA_2024-05-17T215138.json" "refrac_corr_OVRO-LWA_2024-05-17T220010.json" "refrac_corr_OVRO-LWA_2024-05-17T221801.json" "refrac_corr_OVRO-LWA_2024-05-17T223005.json" "refrac_corr_OVRO-LWA_2024-05-17T224135.json" "refrac_corr_OVRO-LWA_2024-05-17T224606.json" "refrac_corr_OVRO-LWA_2024-05-17T225608.json" "refrac_corr_OVRO-LWA_2024-05-17T230600.json" "refrac_corr_OVRO-LWA_2024-05-17T233225.json" "refrac_corr_OVRO-LWA_2024-05-17T235138.json" "refrac_corr_OVRO-LWA_2024-05-18T003226.json" --interp_method slinear fit --timediff_tol 30 --overwrite
         
         ## type IV burst on 2024-05-14. PSP type IV
-        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf  --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --fov 22000 22000 --dual_panel --get_latest_version --rfrcor_parm_files   "refrac_corr_OVRO-LWA_2024-05-14T160704.json" "refrac_corr_OVRO-LWA_2024-05-14T194505.json" "refrac_corr_OVRO-LWA_2024-05-14T204906.json"  --interp_method cubic slinear --timediff_tol 30
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype fits --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --dual_panel --get_latest_version --docorr
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf  --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --fov 22000 22000 --dual_panel --get_latest_version --rfrcor_parm_files "refrac_corr_OVRO-LWA_2024-05-14T150703.json" "refrac_corr_OVRO-LWA_2024-05-14T160704.json" "refrac_corr_OVRO-LWA_2024-05-14T164601.json" "refrac_corr_OVRO-LWA_2024-05-14T194505.json" "refrac_corr_OVRO-LWA_2024-05-14T204906.json"  --interp_method cubic slinear --timediff_tol 30 --overwrite
+        
+        ## type III bursts nanoflare
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype fits --specmode fch --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --dual_panel --get_latest_version --docorr
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype fits  --specmode fch --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --fov 22000 22000 --dual_panel --get_latest_version --rfrcor_parm_files "refrac_corr_OVRO MMA_2023-05-02T205641.json" "refrac_corr_OVRO MMA_2023-05-02T215702.json"  --interp_method slinear slinear --timediff_tol 60 --overwrite
+        
+        ## Xingyao's 2023-12-31 CME
+        python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype fits  --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --fov 22000 22000 --dual_panel --get_latest_version --rfrcor_parm_files   "refrac_corr_OVRO MMA_2023-12-31T213503.json" "refrac_corr_OVRO MMA_2023-12-31T222202.json" "refrac_corr_OVRO MMA_2023-12-31T221500.json" "refrac_corr_OVRO MMA_2023-12-31T223103.json" --interp_method slinear slinear --timediff_tol 30 --overwrite
         
         python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode auto --freq 34 39 43 48 52 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf  --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --fov 16000 16000 --dual_panel --get_latest_version --rfrcor_parm_files  "refrac_corr_OVRO-LWA_2024-05-17T205606.json" "refrac_corr_OVRO-LWA_2024-05-17T205846.json" "refrac_corr_OVRO-LWA_2024-05-17T210137.json" "refrac_corr_OVRO-LWA_2024-05-17T210307.json" "refrac_corr_OVRO-LWA_2024-05-17T210638.json" "refrac_corr_OVRO-LWA_2024-05-17T210848.json" "refrac_corr_OVRO-LWA_2024-05-17T224135.json" "refrac_corr_OVRO-LWA_2024-05-17T235138.json" "refrac_corr_OVRO-LWA_2024-05-18T003226.json" --interp_method fit fit --timediff_tol 30 --overwrite
         python /Users/fisher/Library/CloudStorage/Dropbox/PycharmProjects/ovro-lwa-things/ovrolwathings/img_corr_pipeline.py --mode fast --freq 34 39 43 48 57 62 66 71 75 80 84 --norm log --level lev1 --filetype hdf  --specmode mfs --workdir /Users/fisher/myworkspace --scaled_suvi --show_ax_grid --alpha 0.7 --minpercent 5 --fov 16000 16000 --dual_panel --get_latest_version --rfrcor_parm_files  "refrac_corr_OVRO-LWA_2024-05-17T205606.json" "refrac_corr_OVRO-LWA_2024-05-17T205846.json" "refrac_corr_OVRO-LWA_2024-05-17T210137.json" "refrac_corr_OVRO-LWA_2024-05-17T210307.json" "refrac_corr_OVRO-LWA_2024-05-17T210638.json" "refrac_corr_OVRO-LWA_2024-05-17T210848.json" "refrac_corr_OVRO-LWA_2024-05-17T224135.json" "refrac_corr_OVRO-LWA_2024-05-17T235138.json" "refrac_corr_OVRO-LWA_2024-05-18T003226.json" --interp_method fit fit --timediff_tol 8 --overwrite
@@ -476,16 +485,44 @@ if __name__ == "__main__":
         # cadence = timedelta(seconds=10)
         # timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
 
-        ### 2024-05-14
+        # ### 2024-05-14
+        # timestamps = [
+        #     datetime(2024, 5, 14, 15, 7, 0),
+        #     # datetime(2024, 5, 14, 16, 7, 0),
+        #     # datetime(2024, 5, 14, 16, 46, 0),
+        #     # datetime(2024, 5, 14, 18, 24, 7),
+        #     # datetime(2024, 5, 14, 19, 45, 0),
+        #     # datetime(2024, 5, 14, 20, 49, 0),
+        # ]
+        # start_time = datetime(2024, 5, 14, 15, 30, 0)
+        # end_time = datetime(2024, 5, 14, 20, 40, 0)
+        # cadence = timedelta(seconds=60)
+        # timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
+
+        ### 2024-05-02 type III
         timestamps = [
-            datetime(2024, 5, 14, 16, 7, 0),
-            datetime(2024, 5, 14, 19, 45, 0),
-            datetime(2024, 5, 14, 20, 49, 0),
+            # datetime(2023, 5, 2, 20, 56, 41),
+            datetime(2023, 5, 2, 21, 35, 0),
+            datetime(2023, 5, 2, 21, 57, 5),
         ]
-        start_time = datetime(2024, 5, 14, 15, 30, 0)
-        end_time = datetime(2024, 5, 14, 20, 40, 0)
-        cadence = timedelta(seconds=60)
+
+        start_time = datetime(2023, 5, 2, 20, 56, 0)
+        end_time = datetime(2023, 5, 2, 21, 56, 0)
+        cadence = timedelta(seconds=600)
         timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
+
+        ### 2023-12-31 Xingyao's CME
+        # timestamps = [
+        #     # datetime(2023, 12, 31, 21, 35, 8),
+        #     # datetime(2023, 12, 31, 22, 15, 8),
+        #     # datetime(2023, 12, 31, 22, 22, 8),
+        #     # datetime(2023, 12, 31, 22, 31, 8),
+        # ]
+
+        # start_time = datetime(2023, 12, 31, 21, 36, 0)
+        # end_time = datetime(2023, 12, 31, 22, 30, 0)
+        # cadence = timedelta(seconds=60)
+        # timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
 
         ### 2024-02-28
         # timestamps = [
