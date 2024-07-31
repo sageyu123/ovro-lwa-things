@@ -2,6 +2,7 @@ import argparse
 import os
 import subprocess
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import astropy.units as u
 import hvpy
@@ -17,14 +18,16 @@ from sunpy.map.maputils import all_coordinates_from_map
 from sunpy.util.config import get_and_create_download_dir
 from tqdm import tqdm
 
+import ovrolwathings
 from ovrolwasolar.utils import recover_fits_from_h5
 # from PyQt5.QtWidgets import QApplication
 from ovrolwathings import refr_corr_tool as rct
 from ovrolwathings.download_utils import download_ovrolwa
-# from ovrolwathings.download_utils_v1 import download_ovrolwa
 from ovrolwathings.utils import define_filename, define_timestring, interpolate_rfrcorr_file, norm_to_percent, \
     pxy2shifts, read_rfrcorr_parms_json
 from suncasa.io import ndfits
+
+base_dir = Path(ovrolwathings.__file__).parent
 
 
 def update_alpha(im, threshold=0.0, width=0.1, alpha_min=0, alpha_max=1):
@@ -94,10 +97,12 @@ def enhance_offdisk_corona(smap):
 
 
 def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', specmode='mfs', refrac_corr=False,
-         workdir='.', scaled_suvi=True, show_ax_grid=True, alpha=0.7, minpercent=5, draw_contours=False,
+         workdir='.',
+         datadir='.',
+         scaled_suvi=True, show_ax_grid=True, alpha=0.7, minpercent=5, draw_contours=False,
          fov=[16000, 16000], dual_panel=False,
          get_latest_version=False,
-         timediff_tol=None, sshconfig = 'ssh-to-data.private.config',
+         timediff_tol=None, sshconfig='ssh-to-data.private.config',
          snr_threshold=0.0,
          rfrcor_parm_files=[], interp_method=('linear', 'linear'), trajectory_file='', overwrite=False):
     do_plot = False if refrac_corr else True
@@ -107,9 +112,12 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
     except:
         pass
 
-    downloaded_files = download_ovrolwa(timestamps=timestamps, mode=mode, level=level, filetype=filetype,
+    downloaded_files = download_ovrolwa(timestamps=timestamps,
+                                        data_dir=datadir,
+                                        mode=mode, level=level, filetype=filetype,
                                         timediff_tol=timediff_tol,
-                                        specmode=specmode)
+                                        specmode=specmode,
+                                        config=os.path.join(base_dir, sshconfig))
     # print("Downloaded files:", downloaded_files)
 
     if do_plot:
@@ -390,7 +398,11 @@ if __name__ == "__main__":
     parser.add_argument('--filetype', type=str, default='hdf', help='File type to download. Options: hdf, fits')
     parser.add_argument('--specmode', type=str, default='mfs', help='Image mode to download. Options: mfs, fch')
     parser.add_argument('--workdir', type=str, default='.', help='Path to refraction correction parameters')
+    parser.add_argument('--datadir', type=str, default='.', help='Path to the data directory')
+    parser.add_argument('--scaled_suvi', action='store_true', help='Scale the SUVI images')
+    parser.add_argument('--show_ax_grid', action='store_true', help='Show axis grid on the images')
     parser.add_argument('--alpha', type=float, default=0.7, help='Alpha value for transparency')
+    parser.add_argument('--snr_threshold', type=float, default=0.0, help='SNR threshold for the radio images')
     parser.add_argument('--minpercent', type=int, default=5,
                         help='Minimum value as a percentage of the data maximum for the colormap')
     parser.add_argument('--draw_contours', action='store_true', help='Draw contours on the images')
@@ -461,31 +473,31 @@ if __name__ == "__main__":
         # cadence = timedelta(seconds=10)
         # timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
 
-        # ### 2024-05-14
-        # timestamps = [
-        #     datetime(2024, 5, 14, 15, 7, 0),
-        #     # datetime(2024, 5, 14, 16, 7, 0),
-        #     # datetime(2024, 5, 14, 16, 46, 0),
-        #     # datetime(2024, 5, 14, 18, 24, 7),
-        #     # datetime(2024, 5, 14, 19, 45, 0),
-        #     # datetime(2024, 5, 14, 20, 49, 0),
-        # ]
+        ### 2024-05-14
+        timestamps = [
+            # datetime(2024, 5, 14, 15, 7, 0),
+            # datetime(2024, 5, 14, 16, 7, 0),
+            # datetime(2024, 5, 14, 16, 46, 0),
+            datetime(2024, 5, 14, 18, 24, 7),
+            # datetime(2024, 5, 14, 19, 45, 0),
+            # datetime(2024, 5, 14, 20, 49, 0),
+        ]
         # start_time = datetime(2024, 5, 14, 15, 30, 0)
         # end_time = datetime(2024, 5, 14, 20, 40, 0)
         # cadence = timedelta(seconds=60)
         # timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
 
-        ### 2024-05-02 type III
-        timestamps = [
-            # datetime(2023, 5, 2, 20, 56, 41),
-            datetime(2023, 5, 2, 21, 35, 0),
-            datetime(2023, 5, 2, 21, 57, 5),
-        ]
-
-        start_time = datetime(2023, 5, 2, 20, 56, 0)
-        end_time = datetime(2023, 5, 2, 21, 56, 0)
-        cadence = timedelta(seconds=600)
-        timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
+        # ### 2024-05-02 type III
+        # timestamps = [
+        #     # datetime(2023, 5, 2, 20, 56, 41),
+        #     datetime(2023, 5, 2, 21, 35, 0),
+        #     datetime(2023, 5, 2, 21, 57, 5),
+        # ]
+        #
+        # start_time = datetime(2023, 5, 2, 20, 56, 0)
+        # end_time = datetime(2023, 5, 2, 21, 56, 0)
+        # cadence = timedelta(seconds=600)
+        # timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
 
         ### 2023-12-31 Xingyao's CME
         # timestamps = [
@@ -579,8 +591,9 @@ if __name__ == "__main__":
          mnorm=mnorm,
          refrac_corr=args.docorr,
          workdir=args.workdir,
+         datadir=args.datadir,
          scaled_suvi=args.scaled_suvi,
-         show_ax_grid = args.show_ax_grid,
+         show_ax_grid=args.show_ax_grid,
          alpha=args.alpha,
          snr_threshold=args.snr_threshold,
          minpercent=args.minpercent,

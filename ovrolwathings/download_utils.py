@@ -1,12 +1,14 @@
-import numpy as np
-import paramiko
+import configparser
+import os
 import re
 from datetime import datetime, timedelta
-import os
 from getpass import getpass
-from astropy.time import Time
+
 import astropy.units as u
-import configparser
+import numpy as np
+import paramiko
+from astropy.time import Time
+
 
 def get_file_list(ssh, remote_dir):
     """Get the list of files from the remote directory."""
@@ -18,12 +20,12 @@ def get_file_list(ssh, remote_dir):
 def find_nearest_file(files, timestamp, time_format, diff_tol, specmode='mfs', filetype='hdf'):
     """Find the nearest file for each timestamp within a time tolerance."""
     if filetype == 'hdf':
-        file_pattern = re.compile(rf".*\.lev\d+_{specmode}_\d+s\.(\d{{4}}-\d{{2}}-\d{{2}}T\d{{6}}Z)\.image_I\.hdf")
+        file_pattern = re.compile(rf".*\.lev\d+_{specmode}_\d+s\.(\d{{4}}-\d{{2}}-\d{{2}}T\d{{6}}Z)\.(image|image_I)\.hdf")
     elif filetype == 'fits':
-        file_pattern = re.compile(rf".*\.lev\d+_{specmode}_\d+s\.(\d{{4}}-\d{{2}}-\d{{2}}T\d{{6}}Z)\.image_I\.fits")
+        file_pattern = re.compile(rf".*\.lev\d+_{specmode}_\d+s\.(\d{{4}}-\d{{2}}-\d{{2}}T\d{{6}}Z)\.(image|image_I)\.fits")
     else:
         print(f"Invalid filetype: {filetype}. Must be 'hdf' or 'fits'. Defaulting to 'hdf'.")
-        file_pattern = re.compile(rf".*\.lev\d+_{specmode}_\d+s\.(\d{{4}}-\d{{2}}-\d{{2}}T\d{{6}}Z)\.image_I\.hdf")
+        file_pattern = re.compile(rf".*\.lev\d+_{specmode}_\d+s\.(\d{{4}}-\d{{2}}-\d{{2}}T\d{{6}}Z)\.(image|image_I)\.hdf")
 
     # print(file_pattern)
     # print(files)
@@ -66,12 +68,12 @@ def download_files(user, hostname, files, remote_dirs, local_base_dirs, specmode
 
         # Extract date from filename
         if filetype == 'hdf':
-            file_pattern = re.compile(rf".*\.lev\d+_{specmode}_\d+s\.(\d{{4}}-\d{{2}}-\d{{2}}T\d{{6}}Z)\.image_I\.hdf")
+            file_pattern = re.compile(rf".*\.lev\d+_{specmode}_\d+s\.(\d{{4}}-\d{{2}}-\d{{2}}T\d{{6}}Z)\.(image|image_I)\.hdf")
         elif filetype == 'fits':
-            file_pattern = re.compile(rf".*\.lev\d+_{specmode}_\d+s\.(\d{{4}}-\d{{2}}-\d{{2}}T\d{{6}}Z)\.image\.fits")
+            file_pattern = re.compile(rf".*\.lev\d+_{specmode}_\d+s\.(\d{{4}}-\d{{2}}-\d{{2}}T\d{{6}}Z)\.(image|image_I)\.fits")
         else:
             print(f"Invalid filetype: {filetype}. Must be 'hdf' or 'fits'. Defaulting to 'hdf'.")
-            file_pattern = re.compile(rf".*\.lev\d+_{specmode}_\d+s\.(\d{{4}}-\d{{2}}-\d{{2}}T\d{{6}}Z)\.image_I\.hdf")
+            file_pattern = re.compile(rf".*\.lev\d+_{specmode}_\d+s\.(\d{{4}}-\d{{2}}-\d{{2}}T\d{{6}}Z)\.(image|image_I)\.hdf")
 
         date_str = file_pattern.match(file).group(1).split("T")[0]
         date = datetime.strptime(date_str, "%Y-%m-%d")
@@ -137,8 +139,10 @@ def setup_ssh_connection(user, hostname, identityfile):
 
 # Main function to download OVRO-LWA data
 def download_ovrolwa(starttime=None, endtime=None, cadence=None, timestamps=None,
-                    mode='auto', level='lev1',
-                    filetype='hdf', timediff_tol=None, specmode='mfs', config='./ssh-to-data.private.config'):
+                     data_dir='./',
+                     mode='auto', level='lev1',
+                     filetype='hdf', timediff_tol=None, specmode='mfs',
+                     config='ssh-to-data.private.config'):
     '''
     Download OVRO-LWA data from the OVSA server for a given time range or list of timestamps.
     :param starttime:
@@ -157,14 +161,13 @@ def download_ovrolwa(starttime=None, endtime=None, cadence=None, timestamps=None
     # check if the file exists
     if not os.path.exists(config):
         raise FileNotFoundError(f"Config file {config} not found.")
-    
-    config = configparser.ConfigParser()
-    config.read(config)
-    ssh_host = config['SSH']['host']
-    user = config['SSH']['user']
-    identityfile = config['SSH']['identityfile']
 
-    data_dir = './'
+    sshconfig = configparser.ConfigParser()
+    sshconfig.read(config)
+    ssh_host = sshconfig['SSH']['host']
+    user = sshconfig['SSH']['user']
+    identityfile = os.path.expanduser(sshconfig['SSH']['identityfile'])
+
     # Define other constants
     remote_dir_template = "/nas6/ovro-lwa-data/{filetype}/{mode}/{level}/{year}/{month:02d}/{day:02d}"
     local_base_dir_template = f"{data_dir}/ovro-lwa-data/{filetype}/{{mode}}/{level}/"
@@ -208,7 +211,8 @@ def download_ovrolwa(starttime=None, endtime=None, cadence=None, timestamps=None
         nearest_file = None
         for mode_check in modes_to_check:
             local_files = get_local_file_list(local_base_dirs[mode_check], specmode, filetype)
-            nearest_file = find_nearest_file(local_files, timestamp, time_format, diff_tols[mode_check], specmode, filetype)
+            nearest_file = find_nearest_file(local_files, timestamp, time_format, diff_tols[mode_check], specmode,
+                                             filetype)
             if nearest_file is not None:
                 nearest_file = os.path.join(local_base_dirs[mode_check], nearest_file)
                 break
@@ -229,7 +233,7 @@ def download_ovrolwa(starttime=None, endtime=None, cadence=None, timestamps=None
     remote_files_options = {}
     for mode_check in modes_to_check:
         remote_dir = remote_dir_template.format(mode=mode_check, level=level, filetype=filetype, year=date_ref.year,
-                                               month=date_ref.month, day=date_ref.day)
+                                                month=date_ref.month, day=date_ref.day)
         remote_dir_options[mode_check] = remote_dir
         remote_files_options[mode_check] = get_file_list(ssh, remote_dir)
 
@@ -248,13 +252,14 @@ def download_ovrolwa(starttime=None, endtime=None, cadence=None, timestamps=None
             # import IPython;
             # IPython.embed()
             for mode_check in modes_to_check:
-                nearest_file = find_nearest_file(remote_files_options[mode_check], timestamp, time_format, diff_tols[mode_check], specmode, filetype)
+                nearest_file = find_nearest_file(remote_files_options[mode_check], timestamp, time_format,
+                                                 diff_tols[mode_check], specmode, filetype)
                 if nearest_file is not None:
                     nearest_remote_files.append(nearest_file)
                     local_dirs.append(local_base_dirs[mode_check])
                     remote_dirs.append(remote_dir_options[mode_check])
                     break
-            if nearest_file is None:    # If no file is found within the time tolerance
+            if nearest_file is None:  # If no file is found within the time tolerance
                 nearest_remote_files.append(None)
                 local_dirs.append(None)
                 remote_dirs.append(None)
