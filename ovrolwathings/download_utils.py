@@ -109,7 +109,7 @@ def get_local_file_list(local_base_dir, specmode, filetype='hdf'):
     for root, _, files in os.walk(local_base_dir):
         for file in files:
             if specmode in file and file.endswith(filenamesuffix):
-                print(os.path.relpath(os.path.join(root, file), local_base_dir))
+                # print(os.path.relpath(os.path.join(root, file), local_base_dir))
                 local_files.append(os.path.relpath(os.path.join(root, file), local_base_dir))
     return local_files
 

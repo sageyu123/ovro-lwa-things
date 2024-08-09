@@ -170,7 +170,9 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
                 if not os.path.exists(figpath):
                     os.makedirs(figpath, exist_ok=True)
             figname = os.path.join(figpath, figname)
-            if not overwrite and os.path.exists(figname): continue
+            if not overwrite and os.path.exists(figname):
+                print(f"Skipping existing file: {figname}")
+                continue
 
             if rfrcor_parm_files:
                 if len(px_at_targets) > 0 and len(py_at_targets) > 0:
@@ -343,6 +345,7 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
 
             # fig.tight_layout()
             fig.savefig(figname, dpi=200, bbox_inches='tight')
+            print(f"Saved figure: {figname}")
             plt.close(fig)
         plt.ion()
 
@@ -387,8 +390,13 @@ if __name__ == "__main__":
         description="Process OVROLWA solar data with optional plotting and refraction correction.")
     parser.add_argument('--mode', type=str, choices=['auto', 'fast', 'slow'], default='auto',
                         help='Imaging mode [slow or fast]')
+    parser.add_argument('--timestamp_file', type=str,
+                        help='Path to a file containing timestamps, one per line in ISO 8601 format (YYYY-MM-DDTHH:MM:SS)')
     parser.add_argument('--timestamps', type=str, nargs='+', required=False,
                         help='List of timestamps in YYYY-MM-DDTHH:MM:SS format')
+    parser.add_argument('--start_time', type=str, help='Start time in YYYY-MM-DDTHH:MM:SS format')
+    parser.add_argument('--end_time', type=str, help='End time in YYYY-MM-DDTHH:MM:SS format')
+    parser.add_argument('--cadence', type=float, help='Cadence in seconds')
     parser.add_argument('--timediff_tol', type=float, default=None,
                         help='Time difference tolerance between the assigned timestamps and the file in seconds')
     parser.add_argument('--freq', type=float, nargs='+', default=[34, 43, 52, 62, 71, 84], help='Frequencies in MHz')
@@ -421,154 +429,23 @@ if __name__ == "__main__":
 
     if args.timestamps:
         timestamps = [datetime.fromisoformat(ts) for ts in args.timestamps]
-    else:
-
-        ## 2024-05-17
-        timestamps = [
-            datetime(2024, 5, 17, 20, 56, 00),
-            datetime(2024, 5, 17, 20, 58, 46),
-            datetime(2024, 5, 17, 21, 1, 37),
-            datetime(2024, 5, 17, 21, 3, 7),
-            datetime(2024, 5, 17, 21, 6, 38),
-            datetime(2024, 5, 17, 21, 8, 48),
-            # datetime(2024, 5, 17, 21, 26, 31),
-            # datetime(2024, 5, 17, 21, 36, 3),
-            # datetime(2024, 5, 17, 21, 48, 7),
-            # datetime(2024, 5, 17, 21, 51, 36),
-            # datetime(2024, 5, 17, 22, 0, 8),
-            # datetime(2024, 5, 17, 22, 18, 11),
-            # datetime(2024, 5, 17, 22, 30, 3),
-            datetime(2024, 5, 17, 22, 41, 35),
-            # datetime(2024, 5, 17, 22, 46, 6),
-            # # datetime(2024, 5, 17, 22, 56, 8),
-            # datetime(2024, 5, 17, 23, 6, 10),
-            # datetime(2024, 5, 17, 23, 32, 25),
-            datetime(2024, 5, 17, 23, 51, 38),
-            datetime(2024, 5, 18, 0, 32, 26),
-        ]
-
-        start_time = datetime(2024, 5, 17, 20, 55, 0)
-        end_time = datetime(2024, 5, 17, 23, 43, 0)
-        ##blow up of the CME bubble on 2024-05-25
-        start_time = datetime(2024, 5, 17, 21, 4, 0)
-        start_time = datetime(2024, 5, 17, 21, 9, 0)
-        end_time = datetime(2024, 5, 17, 21, 10, 0)
-        # cadence = timedelta(seconds=60)
-        cadence = timedelta(seconds=10)
+    elif args.timestamp_file:
+        timestamps = []
+        with open(args.timestamp_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        timestamps.append(datetime.fromisoformat(line))
+                    except ValueError:
+                        print(f"Skipping unreadable line: {line}")
+    elif args.start_time and args.end_time and args.cadence:
+        start_time = datetime.fromisoformat(args.start_time)
+        end_time = datetime.fromisoformat(args.end_time)
+        cadence = timedelta(seconds=float(args.cadence))
         timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
-
-        # ### 2024-05-25
-        # timestamps = [
-        #     # datetime(2024, 5, 25, 17, 2, 0),
-        #     datetime(2024, 5, 25, 18, 36, 7),
-        #     # datetime(2024, 5, 25, 19, 24, 6),
-        #     datetime(2024, 5, 25, 19, 53, 2),
-        #     # datetime(2024, 5, 25, 20, 24, 7),
-        #     # datetime(2024, 5, 25, 20, 48, 2),
-        #     datetime(2024, 5, 25, 21, 14, 0),
-        #     # # datetime(2024, 5, 25, 22, 33, 1),
-        # ]
-        # start_time = datetime(2024, 5, 25, 17, 0, 0)
-        # end_time = datetime(2024, 5, 25, 21, 14, 0)
-        # cadence = timedelta(seconds=10)
-        # timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
-
-        ### 2024-05-14
-        timestamps = [
-            # datetime(2024, 5, 14, 15, 7, 0),
-            # datetime(2024, 5, 14, 16, 7, 0),
-            # datetime(2024, 5, 14, 16, 46, 0),
-            datetime(2024, 5, 14, 18, 24, 7),
-            # datetime(2024, 5, 14, 19, 45, 0),
-            # datetime(2024, 5, 14, 20, 49, 0),
-        ]
-        # start_time = datetime(2024, 5, 14, 15, 30, 0)
-        # end_time = datetime(2024, 5, 14, 20, 40, 0)
-        # cadence = timedelta(seconds=60)
-        # timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
-
-        # ### 2024-05-02 type III
-        # timestamps = [
-        #     # datetime(2023, 5, 2, 20, 56, 41),
-        #     datetime(2023, 5, 2, 21, 35, 0),
-        #     datetime(2023, 5, 2, 21, 57, 5),
-        # ]
-        #
-        # start_time = datetime(2023, 5, 2, 20, 56, 0)
-        # end_time = datetime(2023, 5, 2, 21, 56, 0)
-        # cadence = timedelta(seconds=600)
-        # timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
-
-        ### 2023-12-31 Xingyao's CME
-        # timestamps = [
-        #     # datetime(2023, 12, 31, 21, 35, 8),
-        #     # datetime(2023, 12, 31, 22, 15, 8),
-        #     # datetime(2023, 12, 31, 22, 22, 8),
-        #     # datetime(2023, 12, 31, 22, 31, 8),
-        # ]
-
-        # start_time = datetime(2023, 12, 31, 21, 36, 0)
-        # end_time = datetime(2023, 12, 31, 22, 30, 0)
-        # cadence = timedelta(seconds=60)
-        # timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
-
-        ### 2024-02-28
-        # timestamps = [
-        #     # datetime(2024, 2, 28, 16, 45, 7),
-        #     # datetime(2024, 2, 28, 16, 50, 3),
-        #     # datetime(2024, 2, 28, 16, 56, 9),
-        #     # datetime(2024, 2, 28, 17, 0, 35),
-        #     # datetime(2024, 2, 28, 17, 6, 1),
-        #     # datetime(2024, 2, 28, 17, 12, 7),
-        #     # datetime(2024, 2, 28, 17, 14, 13),
-        #     # datetime(2024, 2, 28, 17, 20, 9),
-        #     # datetime(2024, 2, 28, 17, 27, 55),
-        #     # datetime(2024, 2, 28, 17, 32, 1),
-        #     # datetime(2024, 2, 28, 17, 36, 27),
-        #     # datetime(2024, 2, 28, 17, 45, 49),
-        #     # datetime(2024, 2, 28, 17, 50, 4),
-        #     # datetime(2024, 2, 28, 17, 56, 41),
-        #     # datetime(2024, 2, 28, 18, 5, 52),
-        #     # datetime(2024, 2, 28, 18, 12, 34),
-        #     # datetime(2024, 2, 28, 18, 18, 45),
-        #     # datetime(2024, 2, 28, 18, 20, 0),
-        #     # datetime(2024, 2, 28, 18, 25, 1),
-        #     # datetime(2024, 2, 28, 18, 27, 16),
-        #     # datetime(2024, 2, 28, 18, 31, 2),
-        #     # datetime(2024, 2, 28, 18, 33, 2),
-        #     # datetime(2024, 2, 28, 18, 39, 19),
-        #     # datetime(2024, 2, 28, 18, 49, 0),
-        #     # datetime(2024, 2, 28, 18, 56, 42),
-        #     # datetime(2024, 2, 28, 19, 3, 13),
-        #     # datetime(2024, 2, 28, 19, 9, 34),
-        #     # datetime(2024, 2, 28, 19, 12, 0),
-        #     # datetime(2024, 2, 28, 19, 18, 6),
-        #     datetime(2024, 2, 28, 19, 36, 9),
-        #     datetime(2024, 2, 28, 19, 40, 50),
-        #     datetime(2024, 2, 28, 19, 51, 42),
-        #     datetime(2024, 2, 28, 19, 54, 7),
-        #     datetime(2024, 2, 28, 20, 3, 14),
-        #     datetime(2024, 2, 28, 20, 13, 6),
-        #     datetime(2024, 2, 28, 20, 17, 2),
-        #     datetime(2024, 2, 28, 20, 23, 8),
-        #     datetime(2024, 2, 28, 20, 31, 9),
-        #     datetime(2024, 2, 28, 20, 35, 5),
-        #     datetime(2024, 2, 28, 20, 42, 6),
-        #     datetime(2024, 2, 28, 20, 50, 8),
-        #     datetime(2024, 2, 28, 20, 58, 14),
-        #     datetime(2024, 2, 28, 21, 6, 6),
-        #     datetime(2024, 2, 28, 21, 15, 6)
-        # ]
-        #
-        # start_time = datetime(2024, 2, 28, 16, 45, 0)
-        # end_time = datetime(2024, 2, 28, 21, 15, 14)
-        # cadence = timedelta(seconds=60)
-        # timestamps = [start_time + i * cadence for i in range(int((end_time - start_time) / cadence) + 1)]
-
-        # timestamps = [
-        #     datetime(2024, 6, 24, 19, 49, 2),
-        #     # datetime(2024, 6, 26, 21, 6, 1),
-        # ]
+    else:
+        raise ValueError("Provide either --timestamps, --timestamp_file, or --start_time, --end_time, and --cadence")
 
     freqplts = args.freq * u.MHz
     mnorm = mcolors.LogNorm() if args.norm == 'log' else mcolors.Normalize()
