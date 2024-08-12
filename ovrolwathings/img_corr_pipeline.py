@@ -417,7 +417,7 @@ if __name__ == "__main__":
     parser.add_argument('--fov', type=int, nargs=2, default=[16000, 16000], help='Field of view in arcsec')
     parser.add_argument('--dual_panel', action='store_true', help='Plot the radio and white-light images side by side')
     parser.add_argument('--docorr', action='store_true', help='Do refraction correction')
-    parser.add_argument('--get_latest_version', action='store_true', help='Get the latest version of the parameters')
+    parser.add_argument('--get_latest_version', action='store_true', help='Get the latest version of the parameters. Now we are using csv instead of json. The keyword will be obsolete in the next update.')
     parser.add_argument('--rfrcor_parm_files', type=str, nargs='+', help='Refraction correction parameter files')
     parser.add_argument('--interp_method', type=str, nargs=2, default=['fit:linear', 'fit:linear'],
                         help='Interpolation methods for refraction correction parameters for pi1 and pi2 respectively (i stands for x and y). Options: fit:linear, fit:quadratic, interp:linear, interp:nearest, interp:nearest-up, interp:zero, interp:quadratic, interp:cubic, interp:previous, interp:next. If one method is provided, it will be used for both pi1 and pi2.')
