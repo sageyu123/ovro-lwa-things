@@ -173,8 +173,8 @@ def plot_interpolated_params(tims, px_values, py_values, target_times, px_at_tar
     ax = ax_parms[3]
 
     total_minutes = (target_times_plt[-1] - target_times_plt[0])/24/60
-    minticks = 5
-    maxticks = 10
+    minticks = 3
+    maxticks = 5
     major_locator = AutoDateLocator(minticks=minticks, maxticks=maxticks)
     ax.xaxis.set_major_locator(major_locator)
 

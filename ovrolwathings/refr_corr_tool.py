@@ -18,6 +18,7 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from pyvistaqt import BackgroundPlotter
 # import vtk
@@ -1529,6 +1530,9 @@ class ImageCorrectionApp(BackgroundPlotter):
         self.canvas_fig_params = FigureCanvas(self.fig_params)
         self.ax_parms = self.fig_params.subplots(4, 1, sharex=True)
 
+        self.toolbar_fig_params = NavigationToolbar(self.canvas_fig_params, self)
+
+
         # Initialize params to None
         self.loaded_params = None
 
@@ -1548,6 +1552,7 @@ class ImageCorrectionApp(BackgroundPlotter):
         interp_layout = QVBoxLayout()
         interp_layout.addWidget(interp_groupbox)
         interp_layout.addWidget(self.canvas_fig_params)
+        interp_layout.addWidget(self.toolbar_fig_params)
         self.interp_widget.setLayout(interp_layout)
         self.main_ctrl_layout2.addWidget(self.interp_widget)
         self.main_ctrl_layout.parentWidget().setMaximumWidth(850)
