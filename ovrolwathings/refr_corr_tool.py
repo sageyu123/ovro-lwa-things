@@ -1,27 +1,32 @@
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import pyvista as pv
 import sunpy.map as smap
 from PyQt5.QtCore import QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QDoubleValidator, QIcon, QIntValidator
-from PyQt5.QtWidgets import (QAbstractSlider, QApplication, QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel,
-                             QLineEdit, QPushButton, QSizePolicy, QSlider, QSpinBox, QSplitter, QToolBar, QToolButton,
-                             QVBoxLayout, QWidget)
+from PyQt5.QtWidgets import (QAbstractSlider, QApplication, QCheckBox, QComboBox, QFileDialog, QGroupBox,
+                             QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy, QSlider, QSpinBox, QSplitter,
+                             QToolBar, QToolButton, QVBoxLayout, QWidget)
 from astropy import units as u
 from astropy.coordinates import SkyCoord
+from astropy.time import Time
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 from pyvistaqt import BackgroundPlotter
 # import vtk
 from skimage.feature import peak_local_max
 from sunpy.coordinates import Helioprojective
 from sunpy.map.maputils import all_coordinates_from_map
 
-from ovrolwathings.utils import correct_images, define_filename, define_timestring, norm_to_percent, pxy2shifts, \
-    shift2pxy
+from ovrolwathings.utils import correct_images, define_filename, define_timestring, interpolate_rfrcorr_params, \
+    norm_to_percent, plot_interpolated_params, pxy2shifts, shift2pxy
 
 UI_dir = Path(__file__).parent / 'UI'
 
@@ -348,6 +353,12 @@ class ImageCorrectionApp(BackgroundPlotter):
         self.bkg_sphere = None
         self.frg_sphere = None
         self.save_state_flag = False  # Flag to control state saving
+        self.df_params = None
+        self.fig_params = None
+        self.sc_px0 = None
+        self.sc_py0 = None
+        self.sc_px1 = None
+        self.sc_py1 = None
 
         if background_map is not None:
             self.zoffset = 0.001 * np.arange(len(background_map), 0, -1)
@@ -523,7 +534,7 @@ class ImageCorrectionApp(BackgroundPlotter):
         self.trajs_actors = None
         if self.trajs is not None:
             self.trajs_actors = {'actor_cut': None, 'line_cut': None, 'tube_cut': None, 'points_cut': None,
-                                 'actor_trajs': [], 'point_trajs': [], 'sphere_trajs':[]}
+                                 'actor_trajs': [], 'point_trajs': [], 'sphere_trajs': []}
             from scipy.interpolate import interp1d
             method = 'linear'
             cutslit = self.trajs['cutslit']
@@ -683,6 +694,7 @@ class ImageCorrectionApp(BackgroundPlotter):
             self.px0_input.setText(f"{-px:.3e}")
             self.py0_input.setText(f"{-py:.3e}")
         self.update_foreground()
+        self.update_params_plot()
 
     def move_frg_sphere(self, center=None):
         """
@@ -752,6 +764,7 @@ class ImageCorrectionApp(BackgroundPlotter):
             self.py1_input.setText(f"{center[2]:.2f}")
         self.update_background()
         self.update_trajs(center)
+        self.update_params_plot()
 
     def update_background(self):
         """
@@ -890,7 +903,7 @@ class ImageCorrectionApp(BackgroundPlotter):
         py_layout.addLayout(py1_layout)
 
         rfr_parms_ctrl_layout1 = QHBoxLayout()
-        rfr_parms_ctrl_layout2 = QHBoxLayout()
+        # rfr_parms_ctrl_layout2 = QHBoxLayout()
 
         # Replace button labels with symbols
         self.undo_rfr_parms_button = QPushButton('', self)
@@ -1048,18 +1061,23 @@ class ImageCorrectionApp(BackgroundPlotter):
         self.apply_button.clicked.connect(self.apply_correction)
 
         # Main layout
-        main_ctrl_layout = QVBoxLayout()
-        main_ctrl_layout.addLayout(timestamp_layout)
-        main_ctrl_layout.addWidget(rfr_corr_groupbox)
-        main_ctrl_layout.addWidget(plot_options_groupbox)
-        main_ctrl_layout.addWidget(self.apply_button)
+        self.main_ctrl_layout = QHBoxLayout()
+        self.main_ctrl_layout1 = QVBoxLayout()
+        self.main_ctrl_layout1.addLayout(timestamp_layout)
+        self.main_ctrl_layout1.addWidget(rfr_corr_groupbox)
+        self.main_ctrl_layout1.addWidget(plot_options_groupbox)
+        self.main_ctrl_layout1.addWidget(self.apply_button)
+        self.main_ctrl_layout.addLayout(self.main_ctrl_layout1)
+
+        self.main_ctrl_layout2 = QVBoxLayout()
+        self.main_ctrl_layout.addLayout(self.main_ctrl_layout2)
 
         # Create a new horizontal layout with QSplitter for resizability
         central_widget = self.app_window.centralWidget()
-        central_layout = central_widget.layout()
+        self.central_layout = central_widget.layout()
 
-        last_widget = central_layout.itemAt(central_layout.count() - 1).widget()
-        central_layout.removeWidget(last_widget)
+        last_widget = self.central_layout.itemAt(self.central_layout.count() - 1).widget()
+        self.central_layout.removeWidget(last_widget)
 
         # Create a new horizontal layout with splitter
         splitter = QSplitter()
@@ -1069,7 +1087,7 @@ class ImageCorrectionApp(BackgroundPlotter):
 
         # Add the main control layout to the splitter
         main_ctrl_widget = QWidget()
-        main_ctrl_widget.setLayout(main_ctrl_layout)
+        main_ctrl_widget.setLayout(self.main_ctrl_layout)
         main_ctrl_widget.setMaximumWidth(250)
         splitter.addWidget(main_ctrl_widget)
 
@@ -1077,7 +1095,7 @@ class ImageCorrectionApp(BackgroundPlotter):
         splitter.setSizes([int(self.width() * 0.5), int(self.width() * 0.25)])
 
         # Set the new layout to the central widget
-        central_layout.addWidget(splitter)
+        self.central_layout.addWidget(splitter)
 
         # Add "LoS" button to toolbar
         toolbar = self.app_window.findChild(QToolBar)
@@ -1336,37 +1354,15 @@ class ImageCorrectionApp(BackgroundPlotter):
                     self.remove_actor(plane['actor_rdslice'])
                     plane['actor_rdslice'] = None
 
-            # if self.show_densityslice_checkbox.isChecked():
-            #     import IPython;
-            #     IPython.embed()
-
-    # def define_filename(self):
-    #     """
-    #     Define the filename for saving refraction correction parameters.
-    #
-    #     :return: str
-    #         Defined filename.
-    #     """
-    #     suffix = ""
-    #     if hasattr(self.rmap, 'observatory'):
-    #         if self.rmap.observatory != "":
-    #             suffix += f"_{self.rmap.observatory.rstrip('-fast')}"
-    #     if hasattr(self.rmap, 'detector'):
-    #         if self.rmap.detector != "":
-    #             suffix += f"_{self.rmap.detector}"
-    #     if hasattr(self.rmap, 'date'):
-    #         suffix += self.rmap.date.to_datetime().strftime("_%Y-%m-%dT%H%M%S")
-    #     return f"refrac_corr{suffix}.json"
-
     def save_params_to_file(self):
         """
         Save refraction correction parameters to a JSON file.
         """
-        params_filename = define_filename(self.rmap, prefix="refrac_corr_", ext=".json", get_latest_version=True)
+        params_filename = define_filename(self.rmap, prefix="refrac_corr_", ext=".csv", get_latest_version=True)
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
         filename, _ = QFileDialog.getSaveFileName(self.app_window, "Save", params_filename,
-                                                  "JSON Files (*.json)", options=options)
+                                                  "CSV Files (*.csv);;JSON Files (*.json)", options=options)
         if filename:
             params = {
                 "time": self.rmap.date.to_datetime().strftime("%Y-%m-%dT%H:%M:%S"),
@@ -1375,37 +1371,234 @@ class ImageCorrectionApp(BackgroundPlotter):
                 "px1": float(self.px1_input.text()),
                 "py1": float(self.py1_input.text())
             }
-            with open(filename, 'w') as file:
-                json.dump(params, file, indent=4)
+            if filename.endswith('.json'):
+                with open(filename, 'w') as file:
+                    json.dump(params, file, indent=4)
+            elif filename.endswith('.csv'):
+                # Convert the params dictionary to a DataFrame
+                df = pd.DataFrame([params])
+                # Check if self.df_params exists, if not create an empty DataFrame
+                if self.df_params is None:
+                    if os.path.exists(filename):
+                        self.df_params = pd.read_csv(filename)
+                    else:
+                        self.df_params = pd.DataFrame(columns=["time", "px0", "py0", "px1", "py1"])
+                self.df_params['time'] = pd.to_datetime(self.df_params['time'])
+                df['time'] = pd.to_datetime(df['time'])
+                # Merge the df with self.df_params, replacing rows with the same timestamp
+                self.df_params = pd.concat([self.df_params[self.df_params['time'] != df['time'].iloc[0]], df])
+                # Sort the DataFrame by time
+                self.df_params = self.df_params.sort_values(by='time')
+                # Save the merged DataFrame to CSV
+                self.df_params.to_csv(filename, index=False)
+            else:
+                print("Invalid file format")
+                return
+
             print(f"Saved refraction corr parameters to {filename}")
+
+    def init_params_plot(self):
+
+        tims_datetime = pd.to_datetime(self.df_params['time'])
+        tims = Time(tims_datetime)
+        px_values = np.vstack([[self.df_params['px0'].values, self.df_params['px1'].values]]).T
+        py_values = np.vstack([[self.df_params['py0'].values, self.df_params['py1'].values]]).T
+        # Perform interpolation and plot
+        nt = 50
+        cadence = (tims[-1].jd - tims[0].jd) / nt
+        target_times = Time([tims[0].jd + i * cadence for i in range(nt + 1)], format='jd')
+
+        px_at_targets, py_at_targets = interpolate_rfrcorr_params(
+            tims_datetime,
+            px_values,
+            py_values,
+            target_times.to_datetime(),
+            methods=(self.method_p0xy.currentText(), self.method_p1xy.currentText())
+        )
+
+        tim = self.rmap.date
+
+        px_, py_ = interpolate_rfrcorr_params(
+            tims_datetime,
+            px_values,
+            py_values,
+            tim.to_datetime(),
+            methods=(self.method_p0xy.currentText(), self.method_p1xy.currentText())
+        )
+        self.loaded_params = {'px0': px_[0, 0], 'py0': py_[0, 0], 'px1': px_[0, 1], 'py1': py_[0, 1]}
+
+        self.ax_parms[0].cla()
+        self.ax_parms[1].cla()
+        self.ax_parms[2].cla()
+        self.ax_parms[3].cla()
+
+        plot_interpolated_params(
+            tims_datetime,
+            px_values,
+            py_values,
+            target_times.to_datetime(),
+            px_at_targets,
+            py_at_targets,
+            save_fig=False,
+            fig_parms=self.fig_params,
+            ax_parms=self.ax_parms,
+            tim=self.rmap.date,
+            params=self.loaded_params
+        )
+        self.sc_px0 = self.ax_parms[0].plot(tim.plot_date, self.loaded_params['px0'], mec='tab:green', mfc='none',
+                                            linestyle='',
+                                            marker='s', label='current')
+        self.sc_py0 = self.ax_parms[1].plot(tim.plot_date, self.loaded_params['py0'], mec='tab:green', mfc='none',
+                                            linestyle='',
+                                            marker='s', label='current')
+        self.sc_px1 = self.ax_parms[2].plot(tim.plot_date, self.loaded_params['px1'], mec='tab:green', mfc='none',
+                                            linestyle='',
+                                            marker='s', label='current')
+        self.sc_py1 = self.ax_parms[3].plot(tim.plot_date, self.loaded_params['py1'], mec='tab:green', mfc='none',
+                                            linestyle='',
+                                            marker='s', label='current')
+        self.canvas_fig_params.draw()
+        self.refr_corr_from_params(self.loaded_params)
+
+    def update_params_plot(self):
+        if not hasattr(self, 'fig_params') or self.fig_params is None:
+            print(f'No figure found. Returning...')
+            return
+        print(f'Updating plot params data...')
+        ax_parms = self.ax_parms
+        tim = self.rmap.date
+        params = {
+            "time": self.rmap.date.to_datetime().strftime("%Y-%m-%dT%H:%M:%S"),
+            "px0": float(self.px0_input.text()),
+            "py0": float(self.py0_input.text()),
+            "px1": float(self.px1_input.text()),
+            "py1": float(self.py1_input.text())
+        }
+        self.sc_px0[0].set_data([tim.plot_date], [params['px0']])
+        self.sc_py0[0].set_data([tim.plot_date], [params['py0']])
+        self.sc_px1[0].set_data([tim.plot_date], [params['px1']])
+        self.sc_py1[0].set_data([tim.plot_date], [params['py1']])
+        # print(f'Updated plot data: {params}')
+
+        ax_parms[0].legend(frameon=True, framealpha=0.5)
+        ax_parms[1].legend(frameon=True, framealpha=0.5)
+        ax_parms[2].legend(frameon=True, framealpha=0.5)
+        ax_parms[3].legend(frameon=True, framealpha=0.5)
+        self.fig_params.canvas.draw()
+
+    def load_params_from_csv(self, filename):
+        # Create a group box for interpolation method selection
+        interp_groupbox = QGroupBox("Interpolation Method Selection")
+        interp_layout = QVBoxLayout()
+
+        # Create dropdowns for interpolation methods with appropriate labels
+        method_p0xy_layout = QHBoxLayout()
+        method_p0xy_label = QLabel("σ:")
+        self.method_p0xy = QComboBox()
+        for method in ['fit:linear', 'fit:quadratic', 'interp:linear', 'interp:nearest', 'interp:nearest-up',
+                       'interp:zero', 'interp:quadratic', 'interp:cubic', 'interp:previous', 'interp:next']:
+            self.method_p0xy.addItem(method)
+        method_p0xy_layout.addWidget(method_p0xy_label)
+        method_p0xy_layout.addWidget(self.method_p0xy)
+
+        method_p1xy_layout = QHBoxLayout()
+        method_p1xy_label = QLabel("Shift:")
+        self.method_p1xy = QComboBox()
+        for method in ['fit:linear', 'fit:quadratic', 'interp:linear', 'interp:nearest', 'interp:nearest-up',
+                       'interp:zero', 'interp:quadratic', 'interp:cubic', 'interp:previous', 'interp:next']:
+            self.method_p1xy.addItem(method)
+        method_p1xy_layout.addWidget(method_p1xy_label)
+        method_p1xy_layout.addWidget(self.method_p1xy)
+
+        # Add button to reload the CSV and update the plot
+        reload_button = QPushButton('Reload', self)
+        reload_button.setToolTip("Reload the CSV file and update the plot")
+        reload_button.clicked.connect(lambda: self.load_params_from_csv(filename))
+
+        # Add the layouts to the interpolation group box
+        interp_layout.addLayout(method_p0xy_layout)
+        interp_layout.addLayout(method_p1xy_layout)
+        interp_layout.addWidget(reload_button)
+        interp_groupbox.setLayout(interp_layout)
+
+        # Load CSV
+        self.df_params = pd.read_csv(filename)
+
+        # Initialize matplotlib figure for plotting
+        self.fig_params = Figure(figsize=(4, 7))
+        self.canvas_fig_params = FigureCanvas(self.fig_params)
+        self.ax_parms = self.fig_params.subplots(4, 1, sharex=True)
+
+        # Initialize params to None
+        self.loaded_params = None
+
+        # Connect dropdown changes to update the plot
+        self.method_p0xy.currentIndexChanged.connect(self.init_params_plot)
+        self.method_p1xy.currentIndexChanged.connect(self.init_params_plot)
+
+        # Update plot initially
+        self.init_params_plot()
+
+        # Add the group box and the plot to the layout
+        if hasattr(self, 'interp_widget'):
+            self.main_ctrl_layout2.removeWidget(self.interp_widget)
+            self.interp_widget.deleteLater()
+
+        self.interp_widget = QWidget()
+        interp_layout = QVBoxLayout()
+        interp_layout.addWidget(interp_groupbox)
+        interp_layout.addWidget(self.canvas_fig_params)
+        self.interp_widget.setLayout(interp_layout)
+        self.main_ctrl_layout2.addWidget(self.interp_widget)
+        self.main_ctrl_layout.parentWidget().setMaximumWidth(850)
+        self.main_ctrl_layout.parentWidget().setMinimumWidth(650)
+
+        # Calculate the required width based on the size of the new widget and the existing central layout
+        central_layout_width = self.central_layout.sizeHint().width()
+        new_width = central_layout_width + self.interp_widget.sizeHint().width() + 20  # Add some padding
+
+        # Adjust the window size to accommodate the new widget
+        self.app_window.setMinimumWidth(new_width)
+        self.app_window.resize(new_width, self.app_window.height())
+        return self.loaded_params
 
     def load_params_from_file(self):
         """
         Load refraction correction parameters from a JSON file.
         """
-        params_filename = define_filename(self.rmap, prefix="refrac_corr_", ext=".json", get_latest_version=True)
+        params_filename = define_filename(self.rmap, prefix="refrac_corr_", ext=".csv", get_latest_version=True)
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
         filename, _ = QFileDialog.getOpenFileName(self.app_window, "Load", params_filename,
-                                                  "JSON Files (*.json)",
+                                                  "CSV Files (*.csv);;JSON Files (*.json)",
                                                   options=options)
         if filename:
-            try:
+            # try:
+            if filename.endswith('.csv'):
+                # Load CSV
+                params = self.load_params_from_csv(filename)
+            elif filename.endswith('.json'):
+                # Load JSON
                 with open(filename, 'r') as file:
                     params = json.load(file)
-                current_state = self.current_state
-                self.save_state_flag = False
-                self.px0_input.setText(f"{params['px0']}")
-                self.py0_input.setText(f"{params['py0']}")
-                self.px1_input.setText(f"{params['px1']}")
-                self.py1_input.setText(f"{params['py1']}")
-                self.move_frg_sphere()
-                self.move_bkg_sphere()
-                self.save_state_flag = True
-                self.save_rfr_parms_state(current_state)
-                print(f"Loaded refraction corr parameters from {filename}")
-            except Exception as e:
-                print(f"Failed to load parameters: {str(e)}")
+                self.refr_corr_from_params(params)
+
+            print(f"Loaded refraction corr parameters from {filename}")
+            # except Exception as e:
+            #     print(f"Failed to load parameters: {str(e)}")
+
+    def refr_corr_from_params(self, params):
+        current_state = self.current_state
+        self.save_state_flag = False
+        self.px0_input.setText(f"{params['px0']}")
+        self.py0_input.setText(f"{params['py0']}")
+        self.px1_input.setText(f"{params['px1']}")
+        self.py1_input.setText(f"{params['py1']}")
+        self.move_frg_sphere()
+        self.move_bkg_sphere()
+        self.save_state_flag = True
+        self.save_rfr_parms_state(current_state)
+        return
 
     def save_rfr_parms_state(self, previous_values=None):
         """

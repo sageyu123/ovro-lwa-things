@@ -7,6 +7,7 @@ from glob import glob
 import astropy.units as u
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import pyvista as pv
 from astropy.time import Time
 from matplotlib.dates import AutoDateFormatter, AutoDateLocator, MinuteLocator
@@ -113,17 +114,130 @@ def read_rfrcorr_parms_json(filename):
         return px, py, time
 
 
-def interpolate_rfrcorr_file(filename, target_times, methods=('linear', 'linear'), do_plot=False, workdir='./'):
-    filename = sorted(filename)
-    tims = []
-    px_values = []
-    py_values = []
-    for f in filename:
-        px, py, tim = read_rfrcorr_parms_json(f)
-        if tim is not None:
-            tims.append(tim)
-            px_values.append(px)
-            py_values.append(py)
+def plot_interpolated_params(tims, px_values, py_values, target_times, px_at_targets, py_at_targets, save_fig=True,
+                             fig_parms=None, ax_parms=None, workdir='./', tim=None, params=None):
+    if fig_parms is None:
+        fig_parms, ax_parms = plt.subplots(4, 1, figsize=(4, 7), sharex=True)
+    timplt = Time(tims).plot_date
+    target_times_plt = Time(target_times).plot_date
+
+    ax_parms[0].plot(timplt, px_values[:, 0], marker='o', ls='', color='tab:blue', label='data')
+    ax_parms[0].plot(target_times_plt, px_at_targets[:, 0], '-', color='tab:blue', label='fit')
+    ax_parms[0].set_ylabel('σₓ [arcsec/Hz²]')
+
+    ax_parms[1].plot(timplt, py_values[:, 0], marker='o', ls='', color='tab:blue', label='data')
+    ax_parms[1].plot(target_times_plt, py_at_targets[:, 0], '-', color='tab:blue', label='fit')
+    ax_parms[1].set_ylabel('σᵧ [arcsec/Hz²]')
+
+    ax_parms[2].plot(timplt, px_values[:, 1], marker='o', ls='', color='tab:blue', label='data')
+    ax_parms[2].plot(target_times_plt, px_at_targets[:, 1], '-', color='tab:blue', label='fit')
+    ax_parms[2].set_ylabel('X shift [arcsec]')
+
+    ax_parms[3].plot(timplt, py_values[:, 1], marker='o', ls='', color='tab:blue', label='data')
+    ax_parms[3].plot(target_times_plt, py_at_targets[:, 1], '-', color='tab:blue', label='fit')
+    ax_parms[3].set_ylabel('Y shift [arcsec]')
+
+    if tim is not None:
+        ax_parms[0].plot(tim.plot_date, params['px0'], color='tab:green', linestyle='', marker='s', label='guess')
+        ax_parms[1].plot(tim.plot_date, params['py0'], color='tab:green', linestyle='', marker='s', label='guess')
+        ax_parms[2].plot(tim.plot_date, params['px1'], color='tab:green', linestyle='', marker='s', label='guess')
+        ax_parms[3].plot(tim.plot_date, params['py1'], color='tab:green', linestyle='', marker='s', label='guess')
+
+    # Calculate the ptp (peak-to-peak) for the first pair of subplots
+    ylim0 = ax_parms[0].get_ylim()
+    ylim1 = ax_parms[1].get_ylim()
+    ptp_01 = max(np.ptp(ylim0), np.ptp(ylim1))
+
+    # Center the y-limits around the mean and set the same ptp
+    mean_0 = np.mean(ylim0)
+    mean_1 = np.mean(ylim1)
+    ax_parms[0].set_ylim(mean_0 - ptp_01*1.5, mean_0 + ptp_01*1.5)
+    ax_parms[1].set_ylim(mean_1 - ptp_01*1.5, mean_1 + ptp_01*1.5)
+
+    # Calculate the ptp (peak-to-peak) for the second pair of subplots
+    ylim2 = ax_parms[2].get_ylim()
+    ylim3 = ax_parms[3].get_ylim()
+    ptp_23 = max(np.ptp(ylim2), np.ptp(ylim3), 200)
+
+    # Center the y-limits around the mean and set the same ptp
+    mean_2 = np.mean(ylim2)
+    mean_3 = np.mean(ylim3)
+    ax_parms[2].set_ylim(mean_2 - ptp_23*1.5, mean_2 + ptp_23*1.5)
+    ax_parms[3].set_ylim(mean_3 - ptp_23*1.5, mean_3 + ptp_23*1.5)
+
+    ax_parms[0].legend(frameon=True, framealpha=0.5)
+    ax_parms[1].legend(frameon=True, framealpha=0.5)
+    ax_parms[2].legend(frameon=True, framealpha=0.5)
+    ax_parms[3].legend(frameon=True, framealpha=0.5)
+
+    ax = ax_parms[3]
+
+    total_minutes = (target_times_plt[-1] - target_times_plt[0])/24/60
+    minticks = 5
+    maxticks = 10
+    major_locator = AutoDateLocator(minticks=minticks, maxticks=maxticks)
+    ax.xaxis.set_major_locator(major_locator)
+
+    # Create formatter for major ticks
+    formatter = AutoDateFormatter(major_locator)
+    if total_minutes < 1:
+        formatter.scaled[1.0] = '%H:%M:%S.%f'  # Show milliseconds for very short durations
+    elif total_minutes < 60:
+        formatter.scaled[1.0] = '%H:%M:%S'  # Show seconds for short durations
+    else:
+        formatter.scaled[1.0] = '%H:%M'  # For longer durations, show only hours and minutes
+    formatter.scaled[1 / 24] = '%H:%M'
+    formatter.scaled[1 / (24 * 60)] = '%H:%M'
+    formatter.scaled[1 / (24 * 60 * 60)] = '%H:%M:%S'
+    ax.xaxis.set_major_formatter(formatter)
+
+    # Create locator for minor ticks
+    minor_locator = AutoDateLocator(minticks=minticks * 5, maxticks=minticks * 5)  # More minor ticks
+    ax.xaxis.set_minor_locator(minor_locator)
+    ax.set_xlabel('Time [UT]')
+
+    fig_parms.tight_layout()
+    if save_fig:
+        figname = os.path.join(workdir, f'fig-refrac_corr_parms_{target_times[0].strftime("%Y%m%d")}.jpg')
+        print(f"Saving refrac corr params figure: {figname}")
+        fig_parms.savefig(figname, dpi=300, bbox_inches='tight')
+    return fig_parms
+
+
+def interpolate_rfrcorr_file(filename, target_times, methods=('fit:linear', 'fit:linear'), do_plot=False, save_fig=True,
+                             workdir='./'):
+    if isinstance(filename, str):
+        if filename.endswith('.csv'):
+            # Read the CSV file into a DataFrame
+            df = pd.read_csv(filename)
+            tims = pd.to_datetime(df['time'])
+            px_values = np.vstack([[df['px0'].values, df['px1'].values]]).T
+            py_values = np.vstack([[df['py0'].values, df['py1'].values]]).T
+        else:
+            # Handle single JSON file
+            px, py, tim = read_rfrcorr_parms_json(filename)
+            tims = [tim]
+            px_values = [px]
+            py_values = [py]
+    elif isinstance(filename, list) and filename[0].endswith('.csv'):
+        # Handle list of a CSV file
+        df = pd.read_csv(filename[0])
+        tims = pd.to_datetime(df['time'])
+        px_values = np.vstack([[df['px0'].values, df['px1'].values]]).T
+        py_values = np.vstack([[df['py0'].values, df['py1'].values]]).T
+    else:
+        # Handle list of JSON files
+        filename = sorted(filename)
+        tims = []
+        px_values = []
+        py_values = []
+        for f in filename:
+            px, py, tim = read_rfrcorr_parms_json(f)
+            if tim is not None:
+                tims.append(tim)
+                px_values.append(px)
+                py_values.append(py)
+
     px_values = np.array(px_values)
     py_values = np.array(py_values)
 
@@ -131,80 +245,15 @@ def interpolate_rfrcorr_file(filename, target_times, methods=('linear', 'linear'
     if len(tims) > 1:
         px_at_targets, py_at_targets = interpolate_rfrcorr_params(tims, px_values, py_values, target_times,
                                                                   methods)
-        px_at_targets_plt = np.array(px_at_targets)
-        py_at_targets_plt = np.array(py_at_targets)
         if do_plot:
-            # print(f"Time taken to interpolate: {time.time() - time_start:.1f} seconds")
-            fig_parms, ax_parms = plt.subplots(4, 1, figsize=(6, 6), sharex=True)
-            timplt = Time(tims).plot_date
-            target_times_plt = Time(target_times).plot_date
-
-            ax_parms[0].plot(timplt, px_values[:, 0], 'o', label='measured')
-            ax_parms[0].plot(target_times_plt, px_at_targets_plt[:, 0], '-', label='interpolated')
-            ax_parms[0].set_ylabel('σₓ [arcsec/Hz²]')
-            ax_parms[0].legend(frameon=False)
-
-            ax_parms[1].plot(timplt, py_values[:, 0], 'o', label='measured')
-            ax_parms[1].plot(target_times_plt, py_at_targets_plt[:, 0], '-', label='interpolated')
-            ax_parms[1].set_ylabel('σᵧ [arcsec/Hz²]')
-            ax_parms[1].legend(frameon=False)
-
-            ax_parms[2].plot(timplt, px_values[:, 1], 'o', label='measured')
-            ax_parms[2].plot(target_times_plt, px_at_targets_plt[:, 1], '-', label='interpolated')
-            ax_parms[2].set_ylabel('X shift [arcsec]')
-            ax_parms[2].legend(frameon=False)
-
-            ax_parms[3].plot(timplt, py_values[:, 1], 'o', label='measured')
-            ax_parms[3].plot(target_times_plt, py_at_targets_plt[:, 1], '-', label='interpolated')
-            ax_parms[3].set_ylabel('Y shift [arcsec]')
-            ax_parms[3].legend(frameon=False)
-
-            # Calculate the ptp (peak-to-peak) for the first pair of subplots
-            ylim0 = ax_parms[0].get_ylim()
-            ylim1 = ax_parms[1].get_ylim()
-            ptp_01 = max(np.ptp(ylim0), np.ptp(ylim1))
-
-            # Center the y-limits around the mean and set the same ptp
-            mean_0 = np.mean(ylim0)
-            mean_1 = np.mean(ylim1)
-            ax_parms[0].set_ylim(mean_0 - ptp_01 / 2, mean_0 + ptp_01 / 2)
-            ax_parms[1].set_ylim(mean_1 - ptp_01 / 2, mean_1 + ptp_01 / 2)
-
-            # Calculate the ptp (peak-to-peak) for the second pair of subplots
-            ylim2 = ax_parms[2].get_ylim()
-            ylim3 = ax_parms[3].get_ylim()
-            ptp_23 = max(np.ptp(ylim2), np.ptp(ylim3),200)
-
-            # Center the y-limits around the mean and set the same ptp
-            mean_2 = np.mean(ylim2)
-            mean_3 = np.mean(ylim3)
-            ax_parms[2].set_ylim(mean_2 - ptp_23 / 2, mean_2 + ptp_23 / 2)
-            ax_parms[3].set_ylim(mean_3 - ptp_23 / 2, mean_3 + ptp_23 / 2)
-
-            ax = ax_parms[3]
-            locator = AutoDateLocator(minticks=2)
-            ax.xaxis.set_major_locator(locator)
-            formatter = AutoDateFormatter(locator)
-            formatter.scaled[1.0] = '%H:%M'  # For intervals of 1 day
-            formatter.scaled[1 / 24] = '%H:%M'  # For intervals of 1 hour
-            formatter.scaled[1 / (24 * 60)] = '%H:%M'  # For intervals of 1 minute
-            formatter.scaled[1 / (24 * 60 * 60)] = '%H:%M'  # For intervals of 1 second
-            ax.xaxis.set_major_formatter(formatter)
-            # Add minor ticks at a 10-minute cadence
-            minor_locator = MinuteLocator(byminute=range(0, 60, 10))
-            ax.xaxis.set_minor_locator(minor_locator)
-            ax.set_xlabel('Time [UT]')
-
-            fig_parms.tight_layout()
-            figname = os.path.join(workdir, f'fig-refrac_corr_parms_{target_times[0].strftime("%Y%m%d")}.jpg')
-            print(f"Saving refrac corr params figure: {figname}")
-            fig_parms.savefig(figname, dpi=300, bbox_inches='tight')
+            plot_interpolated_params(tims, px_values, py_values, target_times, px_at_targets, py_at_targets, save_fig=save_fig,
+                                     workdir=workdir)
         return px_at_targets, py_at_targets
     else:
         return px_values, py_values
 
 
-def interpolate_rfrcorr_params(times, px_values, py_values, target_times, methods=('linear', 'linear')):
+def interpolate_rfrcorr_params(times, px_values, py_values, target_times, methods=('fit:linear', 'fit:linear')):
     """
     Interpolate/fit px and py values at the target times.
 
@@ -216,25 +265,25 @@ def interpolate_rfrcorr_params(times, px_values, py_values, target_times, method
     :type py_values: list
     :param target_times: List or scalar time string(s) in the format %Y-%m-%dT%H:%M:%S for which interpolation/ fitting is required.
     :type target_times: list or str
-    :param methods: Interpolation methods ('linear', 'nearest', 'slinear', 'cubic', 'quadratic', 'fit'), defaults to ('linear', 'linear').
+    :param methods: fit/Interpolation methods ('fit:linear', 'fit:quadratic', 'interp:linear', 'interp:nearest', 'interp:nearest-up', 'interp:zero', 'interp:quadratic', 'interp:cubic', 'interp:previous', 'interp:next'), defaults to ('interp:linear', 'interp:linear').
     :type methods: tuple, optional
     :return: List of interpolated/fit px and py arrays for each target time if target_times is a list, or a single interpolated/fit px and py array if target_times is a scalar.
     :rtype: list
     """
-    times = [datetime.strptime(t, "%Y-%m-%dT%H:%M:%S") for t in times]
-    times_numeric = np.array([t.timestamp() for t in times])
+
+    times = [t if isinstance(t, datetime) else datetime.strptime(t, "%Y-%m-%dT%H:%M:%S") for t in times]
+    times_numeric = Time(times).mjd
 
     if isinstance(target_times, str) or isinstance(target_times, datetime):
         target_times = [target_times]
 
-    target_times_numeric = [
-        t.timestamp() if isinstance(t, datetime) else datetime.strptime(t, "%Y-%m-%dT%H:%M:%S").timestamp()
-        for t in target_times
-    ]
+    target_times_numeric = Time([
+        t if isinstance(t, datetime) else datetime.strptime(t, "%Y-%m-%dT%H:%M:%S") for t in target_times
+    ]).mjd
 
     px_values = np.array(px_values)
     py_values = np.array(py_values)
-    print(f'shape of px_values: {px_values.shape}')
+    # print(f'shape of px_values: {px_values.shape}')
 
     if isinstance(methods, str):
         methods = (methods, methods)
@@ -245,17 +294,26 @@ def interpolate_rfrcorr_params(times, px_values, py_values, target_times, method
 
     def apply_method(values, method):
         result = []
-        if method == 'fit':
+        if method.startswith('fit'):
+            if method == 'fit:linear':
+                deg = 1
+            elif method == 'fit:quadratic':
+                deg = 2
             # Perform a 2nd-degree polynomial fit
             for col in range(values.shape[1]):
-                coefs = np.polyfit(times_numeric, values[:, col], 2)
+                coefs = np.polyfit(times_numeric, values[:, col], deg)
                 fit_func = np.poly1d(coefs)
                 result.append(fit_func(target_times_numeric))
-        else:
-            # Perform interpolation
+        elif method.startswith('interp:'):
+            interp_kind = method.split(':')[1]
+            # Perform interpolation using scipy's interp1d
             for col in range(values.shape[1]):
-                interp_func = interp1d(times_numeric, values[:, col], kind=method, fill_value="extrapolate")
+                interp_func = interp1d(times_numeric, values[:, col], kind=interp_kind, fill_value="extrapolate")
                 result.append(interp_func(target_times_numeric))
+        else:
+            raise ValueError(
+                f"Unknown method: {method}. Supported methods are 'fit:linear', 'fit:quadratic', and 'interp:<method>'.")
+
         return np.array(result).T
 
     p1_values = np.vstack([px_values[:, 0], py_values[:, 0]]).T
@@ -443,7 +501,12 @@ def define_filename(rmap, prefix="", ext=".json", delimiter="_", directory=".", 
     if hasattr(rmap, 'detector') and rmap.detector != "":
         filename_.append(f"{rmap.detector}")
     if hasattr(rmap, 'date'):
-        filename_.append(rmap.date.strftime("%Y-%m-%dT%H%M%S"))
+        if ext == ".json":
+            filename_.append(rmap.date.strftime("%Y-%m-%dT%H%M%S"))
+        elif ext == ".csv":
+            filename_.append(rmap.date.strftime("%Y-%m-%d"))
+        else:
+            filename_.append(rmap.date.strftime("%Y-%m-%dT%H%M%S"))
     base_filename = delimiter.join(filename_)
     base_filename = f"{prefix}{base_filename}"
     #
@@ -481,67 +544,3 @@ def define_timestring(rmap, prefix="", delimiter=" "):
         filename_.append(rmap.date.to_datetime().strftime("%Y-%m-%d %H:%M:%S UT"))
     filename = delimiter.join(filename_)
     return f"{prefix}{filename}"
-
-
-def test():
-    from ovrolwasolar.utils import recover_fits_from_h5
-    import numpy as np
-    import matplotlib.pyplot as plt
-    import pyvista as pv
-    from pyvistaqt import BackgroundPlotter
-
-    lwafile = '/Users/fisher/ovro-lwa-data/hdf/slow/lev1/2024/05/17/ovro-lwa-352.lev1_fch_10s.2024-05-17T230600Z.image_I.hdf'
-
-    meta, data = recover_fits_from_h5(lwafile, return_data=True)
-    data = np.squeeze(data)
-
-    _, ny, nx = data.shape
-    # Example data
-    spacing = [1, 1, 5]
-    origin = [0, 0, 0]
-    nf, ny, nx = data.shape
-
-    cfreqs = meta['cfreqs']
-    cfreqsmhz = cfreqs / 1e6
-
-    # Define the number of frequencies to plot
-    # nf_plt = 8
-    # dimensions = (nx, ny, nf_plt)
-    # dummydata = np.zeros((nf_plt,ny, nx))
-    # # Generate indices for the slices
-    # frequency_indices = np.linspace(3, 140, nf_plt).astype(np.int_)
-    frequency_indices = [np.argmin(np.abs(cfreqsmhz - freq)) for freq in [34, 43, 52, 62, 71, 84]]
-    nf_plt = len(frequency_indices)
-    dimensions = (nx, ny, nf_plt)
-    dummydata = np.zeros((nf_plt, ny, nx))
-
-    # Create the colormap and color array
-    cmap = plt.get_cmap('jet')
-    colors = cmap(np.linspace(0, 1, nf_plt))
-
-    for idx, freq in enumerate(frequency_indices):
-        dummydata[idx] = freq
-        mask = np.where(data[freq] < 0.15 * np.nanmax(data[freq]))
-        dummydata[idx][mask] = 0
-
-    # Create the RGBA array
-    rgba_data = np.zeros((nf_plt, ny, nx, 4), dtype=np.uint8)
-    for idx, freq in enumerate(frequency_indices):
-        normalized_data = norm_to_percent(data[freq], minpercent=3, maxpercent=50, logscale=True)
-        rgba_data[idx, ..., 0:3] = (colors[idx][:3] * 255).astype(np.uint8)  # RGB
-        rgba_data[idx, ..., 3] = (normalized_data * 255).astype(np.uint8) * 0.5  # Alpha
-
-    # Create a PyVista plotter
-    plotter = BackgroundPlotter()
-    img_data = pv.ImageData()
-    img_data.spacing = spacing
-    # img_data.origin = origin
-    img_data.dimensions = dimensions
-    # img_data['scalar'] = dummydata.T.ravel(order='F')
-    img_data['scalar'] = rgba_data.reshape(-1, 4)
-    # Create an opacity transfer function
-    # img_data['opacity'] = opacity_array.T.ravel(order='F')
-    plotter.add_volume(img_data, scalars='scalar')
-
-    # Show the plot
-    plotter.show()
