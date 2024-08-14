@@ -439,6 +439,8 @@ if __name__ == "__main__":
                         timestamps.append(datetime.fromisoformat(line))
                     except ValueError:
                         print(f"Skipping unreadable timestamp: {line}")
+        if not timestamps:
+            raise ValueError("No valid timestamps found. Please check the input timestamp file.")
     elif args.start_time and args.end_time and args.cadence:
         start_time = datetime.fromisoformat(args.start_time)
         end_time = datetime.fromisoformat(args.end_time)
@@ -450,11 +452,39 @@ if __name__ == "__main__":
     freqplts = args.freq * u.MHz
     mnorm = mcolors.LogNorm() if args.norm == 'log' else mcolors.Normalize()
 
-    # Combine conversion to absolute paths and file existence check
-    rfrcor_parm_files = [
-        os.path.abspath(f) if not os.path.isabs(f) else f
-        for f in args.rfrcor_parm_files
-    ] if args.rfrcor_parm_files else []
+
+    def resolve_path(file_path, base_dir):
+        """
+        Resolve file paths by checking under the current directory and the specified base directory.
+
+        :param file_path: The path of the file to resolve.
+        :param base_dir: The base directory to check if the file is not found in the current directory.
+        :return: The absolute path if the file exists, otherwise returns None.
+        """
+        if os.path.isabs(file_path) and os.path.exists(file_path):
+            return file_path  # Return absolute path if it exists
+        elif os.path.exists(os.path.join(base_dir, file_path)):
+            return os.path.abspath(os.path.join(base_dir, file_path))  # Check in the base directory
+        elif os.path.exists(file_path):
+            return os.path.abspath(file_path)  # Return path if it exists relative to the current directory
+        return None
+
+
+    # Assuming rfrcor_parm_files is initially a list of paths given in args
+    resolved_rfrcor_parm_files = []
+    for file_path in args.rfrcor_parm_files:
+        resolved_path = resolve_path(file_path, args.workdir)
+        if resolved_path:
+            resolved_rfrcor_parm_files.append(resolved_path)
+        else:
+            print(f"Warning: Refraction correction parameter file not found: {file_path}")
+
+    rfrcor_parm_files = resolved_rfrcor_parm_files
+    # # Combine conversion to absolute paths and file existence check
+    # rfrcor_parm_files = [
+    #     os.path.abspath(f) if os.path.isabs(f) else os.path.join(args.workdir, f)
+    #     for f in args.rfrcor_parm_files
+    # ] if args.rfrcor_parm_files else []
 
     # Filter out non-existing files
     rfrcor_parm_files = [f for f in rfrcor_parm_files if os.path.exists(f)]

@@ -620,6 +620,8 @@ class ImageCorrectionApp(BackgroundPlotter):
                                   cmap=cmap, opacity='opacity',
                                   clim=(0, 255),
                                   show_edges=False,
+                                  preference='cell',
+                                  specular = 1.0,
                                   pickable=False, show_scalar_bar=False)
             self.plane_background.append(
                 {'bkgmapname': bkgmapname, 'img_data': img_data, 'actor': actor, 'cmap': cmap, 'origin': origin})
@@ -1531,7 +1533,6 @@ class ImageCorrectionApp(BackgroundPlotter):
         self.ax_parms = self.fig_params.subplots(4, 1, sharex=True)
 
         self.toolbar_fig_params = NavigationToolbar(self.canvas_fig_params, self)
-
 
         # Initialize params to None
         self.loaded_params = None
