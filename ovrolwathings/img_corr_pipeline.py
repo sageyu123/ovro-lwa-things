@@ -107,8 +107,12 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
          rfrcor_parm_files=[], interp_method=('fit:linear', 'fit:linear'), trajectory_file='', overwrite=False):
     do_plot = False if refrac_corr else True
 
+
     try:
-        os.chdir(workdir)
+        if os.path.isabs(workdir):
+            if not os.path.exists(workdir):
+                os.makedirs(workdir, exist_ok=True)
+            os.chdir(workdir)
     except:
         pass
 
