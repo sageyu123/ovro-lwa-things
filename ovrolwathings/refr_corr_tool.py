@@ -1004,7 +1004,7 @@ class ImageCorrectionApp(BackgroundPlotter):
         self.contourlevels_input = QLineEdit(self)
         self.contourlevels_input.setToolTip(
             'Comma-separated list of contour levels in percentage of the maximum intensity')
-        self.contourlevels_input.setText("5, 15, 30, 60, 90")
+        self.contourlevels_input.setText("10, 30, 60, 90")
         self.contourlevels_input.returnPressed.connect(self.validate_and_update_contours)
         contour_layout.addWidget(self.contourlevels_label)
         contour_layout.addWidget(self.contourlevels_input)
@@ -1498,7 +1498,7 @@ class ImageCorrectionApp(BackgroundPlotter):
         method_p0xy_layout = QHBoxLayout()
         method_p0xy_label = QLabel("σ:")
         self.method_p0xy = QComboBox()
-        for method in ['fit:linear', 'fit:quadratic', 'interp:linear', 'interp:nearest', 'interp:nearest-up',
+        for method in ['mean', 'fit:linear', 'fit:quadratic', 'interp:linear', 'interp:nearest', 'interp:nearest-up',
                        'interp:zero', 'interp:quadratic', 'interp:cubic', 'interp:previous', 'interp:next']:
             self.method_p0xy.addItem(method)
         method_p0xy_layout.addWidget(method_p0xy_label)
@@ -1507,7 +1507,7 @@ class ImageCorrectionApp(BackgroundPlotter):
         method_p1xy_layout = QHBoxLayout()
         method_p1xy_label = QLabel("Shift:")
         self.method_p1xy = QComboBox()
-        for method in ['fit:linear', 'fit:quadratic', 'interp:linear', 'interp:nearest', 'interp:nearest-up',
+        for method in ['mean', 'fit:linear', 'fit:quadratic', 'interp:linear', 'interp:nearest', 'interp:nearest-up',
                        'interp:zero', 'interp:quadratic', 'interp:cubic', 'interp:previous', 'interp:next']:
             self.method_p1xy.addItem(method)
         method_p1xy_layout.addWidget(method_p1xy_label)

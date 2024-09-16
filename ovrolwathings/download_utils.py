@@ -98,18 +98,16 @@ def download_files(user, hostname, files, remote_dirs, local_base_dirs, specmode
 def get_local_file_list(local_base_dir, specmode, filetype='hdf'):
     """Get the list of local files."""
     if filetype == 'hdf':
-        filenamesuffix = '.image_I.hdf'
+        filenamesuffixes = ['.image_I.hdf', '.image.hdf']
     elif filetype == 'fits':
-        # filenamesuffix = '.image.fits'
-        filenamesuffix = '.image_I.fits'
+        filenamesuffixes = ['.image_I.fits', '.image.fits']
     else:
-        filenamesuffix = '.image_I.hdf'
+        filenamesuffixes = ['.image_I.hdf', '.image.hdf']
 
     local_files = []
     for root, _, files in os.walk(local_base_dir):
         for file in files:
-            if specmode in file and file.endswith(filenamesuffix):
-                # print(os.path.relpath(os.path.join(root, file), local_base_dir))
+            if specmode in file and any(file.endswith(suffix) for suffix in filenamesuffixes):
                 local_files.append(os.path.relpath(os.path.join(root, file), local_base_dir))
     return local_files
 
@@ -218,11 +216,15 @@ def download_ovrolwa(starttime=None, endtime=None, cadence=None, timestamps=None
                 break
         nearest_local_files.append(nearest_file)
 
-    # print(f'Nearest local files: {nearest_local_files}')
+    # print(f'Nearest local files: {nearest_local_files}, timestamps: {timestamps}')
     # If all files are found locally, return them
-    if len(list(filter(None, nearest_local_files))) == len(timestamps):
+    local_files_found = list(filter(None, nearest_local_files))
+    print(f'{len(local_files_found)} out of {len(timestamps)} files at the provided timestamps found locally.')
+    if len(local_files_found) == len(timestamps):
+        print("All files found locally. No need to download.")
         return nearest_local_files
 
+    print('Trying to download missing files...')
     ssh = setup_ssh_connection(user, ssh_host, identityfile)
 
     nearest_remote_files = []
@@ -271,6 +273,9 @@ def download_ovrolwa(starttime=None, endtime=None, cadence=None, timestamps=None
     # Close SSH connection
     ssh.close()
 
+    remote_files_found = list(filter(None, nearest_remote_files))
+    if len(remote_files_found)==0:
+        print("None of the missing files found on the server. No files downloaded.")
     # Download the missing files
     downloaded_files = download_files(user, ssh_host, nearest_remote_files,
                                       remote_dirs,

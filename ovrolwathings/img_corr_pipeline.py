@@ -23,11 +23,21 @@ from ovrolwasolar.utils import recover_fits_from_h5
 # from PyQt5.QtWidgets import QApplication
 from ovrolwathings import refr_corr_tool as rct
 from ovrolwathings.download_utils import download_ovrolwa
-from ovrolwathings.utils import define_filename, define_timestring, interpolate_rfrcorr_file, norm_to_percent, \
-    pxy2shifts, read_rfrcorr_parms_json
+from ovrolwathings.utils import apply_intensity_threshold, cal_pix_shifts, cal_pxy, define_filename, define_timestring, \
+    interpolate_rfrcorr_file, norm_to_percent, pxy2shifts
 from suncasa.io import ndfits
 
 base_dir = Path(ovrolwathings.__file__).parent
+
+# Dictionary mapping suvi_passband to DataSource values
+suvi_passband_map = {
+    '94': DataSource.SUVI_94.value,
+    '131': DataSource.SUVI_131.value,
+    '171': DataSource.SUVI_171.value,
+    '195': DataSource.SUVI_195.value,
+    '284': DataSource.SUVI_284.value,
+    '304': DataSource.SUVI_304.value
+}
 
 
 def update_alpha(im, threshold=0.0, width=0.1, alpha_min=0, alpha_max=1):
@@ -96,17 +106,22 @@ def enhance_offdisk_corona(smap):
 #     # sys.exit(app.exec_())
 
 
-def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', specmode='mfs', refrac_corr=False,
+def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', specmode='mfs',
+         auto_corr=False,
+         refrac_corr=False,
          workdir='.',
          datadir='.',
-         scaled_suvi=True, show_ax_grid=True, alpha=0.7, minpercent=5, draw_contours=False,
-         fov=[16000, 16000], dual_panel=False,
+         scaled_suvi=True,
+         suvi_passband=171,
+         show_ax_grid=True, alpha=0.7, minpercent=5, draw_contours=False,
+         fov=[16000, 16000],
+         fov_center=[0, 0],
+         dual_panel=False,
          get_latest_version=False,
          timediff_tol=None, sshconfig='ssh-to-data.private.config',
          snr_threshold=0.0,
          rfrcor_parm_files=[], interp_method=('fit:linear', 'fit:linear'), trajectory_file='', overwrite=False):
     do_plot = False if refrac_corr else True
-
 
     try:
         if os.path.isabs(workdir):
@@ -134,6 +149,13 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
         px_at_targets = []
         py_at_targets = []
 
+    # for tidx, (downloaded_file, timestamp) in enumerate(tqdm(zip(downloaded_files, timestamps))):
+    #     if downloaded_file is None:
+    #         print(f'file: {downloaded_file}, timestamp: {timestamp}')
+    #     else:
+    #         print(f'file: {os.path.basename(downloaded_file)}, timestamp: {timestamp}')
+
+    suvi_key = f'suvi_{suvi_passband}'
     for tidx, (downloaded_file, timestamp) in enumerate(tqdm(zip(downloaded_files, timestamps))):
         print(f'file: {downloaded_file}, timestamp: {timestamp}')
         # if tidx > 0: continue
@@ -149,10 +171,11 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
             lasco_c2_jp2_file = hvpy.save_file(hvpy.getJP2Image(timestamp,
                                                                 DataSource.LASCO_C2.value),
                                                filename=lasco_c2_jp2_file, overwrite=True)
-        suvi_jp2_file = get_and_create_download_dir() + f"/SUVI_171_{timestr}.jp2"
+        suvi_jp2_file = get_and_create_download_dir() + f"/SUVI_{suvi_passband}_{timestr}.jp2"
         if not os.path.exists(suvi_jp2_file):
+            suvi_data_source = suvi_passband_map.get(suvi_passband, DataSource.SUVI_171.value)
             suvi_jp2_file = hvpy.save_file(hvpy.getJP2Image(timestamp,
-                                                            DataSource.SUVI_171.value),
+                                                            suvi_data_source),
                                            filename=suvi_jp2_file, overwrite=True)
 
         if do_plot:
@@ -162,6 +185,7 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
                 meta, data = ndfits.read(downloaded_file)
                 if 'cfreqs' not in meta:
                     meta['cfreqs'] = meta['ref_cfreqs']
+            corrected_data = np.squeeze(data)
             header = meta['header']
             delta_x = header['CDELT1']
             delta_y = header['CDELT2']
@@ -183,10 +207,29 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
                     px, py = px_at_targets[tidx], py_at_targets[tidx]
                     print(f'using px, py from interpolation: {px}, {py}')
             else:
-                params_filename = define_filename(lwamap, prefix="refrac_corr_", ext=".json",
-                                                  get_latest_version=get_latest_version)
-                params_filepath = os.path.join(workdir, params_filename)
-                px, py, tim = read_rfrcorr_parms_json(params_filepath)
+                # params_filename = define_filename(lwamap, prefix="refrac_corr_", ext=".json",
+                #                                   get_latest_version=get_latest_version)
+                # params_filepath = os.path.join(workdir, params_filename)
+                # px, py, tim = read_rfrcorr_parms_json(params_filepath)
+                px = [0.0, 0.0]
+                py = [0.0, 0.0]
+
+            if auto_corr:
+                img2proc = [apply_intensity_threshold(img, per_thrshd=95) for img in corrected_data]
+                ref_image = img2proc[-1]
+                pix_shifts = cal_pix_shifts(img2proc, ref_image)
+                ## py_ comes first before px_ because the processing is in the image plane, whose x y axis are the y x axis of the 2D array.
+                py_, px_ = cal_pxy(cfreqsmhz, pix_shifts)
+                if2 = cfreqsmhz ** (-2)
+                shift_x_pix = np.polyval(px_, if2)
+                ## The minus sign is used because the direction of y of the image and the array are opposite.
+                shift_y_pix = -np.polyval(py_, if2)
+                shifts_x, shifts_y = shift_x_pix * delta_x + px[1], shift_y_pix * delta_y + py[1]
+                shifts_x_orig, shifts_y_orig = pxy2shifts(px, py, freqplts)
+                print(f'original shifts in pixels: {shifts_x_orig / delta_x}, {shifts_y_orig / delta_y}')
+                print(f'auto corr shift in pixels: {shift_x_pix}, {shift_y_pix}')
+            else:
+                shifts_x, shifts_y = pxy2shifts(px, py, freqplts)
 
             # import pdb;
             # pdb.set_trace()
@@ -199,7 +242,7 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
             else:
                 scaled_suvi_map = suvi_map
 
-            bkgmaps_orig = {'lasco_c3': lasco_c3_map, 'lasco_c2': lasco_c2_map, 'suvi_171': scaled_suvi_map}
+            bkgmaps_orig = {'lasco_c3': lasco_c3_map, 'lasco_c2': lasco_c2_map, suvi_key: scaled_suvi_map}
 
             projected_coord = SkyCoord(0 * u.arcsec, 0 * u.arcsec,
                                        obstime=lwamap.observer_coordinate.obstime,
@@ -219,28 +262,25 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
 
             # top_right = SkyCoord(15000 * u.arcsec, 15000 * u.arcsec, frame=bkgmaps['lasco_c3'].coordinate_frame)
             # bottom_left = SkyCoord(-15000 * u.arcsec, -15000 * u.arcsec, frame=bkgmaps['lasco_c3'].coordinate_frame)
-            top_right = SkyCoord(fov[0] / 2 * u.arcsec, fov[1] / 2 * u.arcsec,
+            top_right = SkyCoord((fov_center[0] + fov[0] / 2) * u.arcsec, (fov_center[1] + fov[1] / 2) * u.arcsec,
                                  frame=bkgmaps['lasco_c3'].coordinate_frame)
-            bottom_left = SkyCoord(-fov[0] / 2 * u.arcsec, -fov[1] / 2 * u.arcsec,
+            bottom_left = SkyCoord((fov_center[0] - fov[0] / 2) * u.arcsec, (fov_center[1] - fov[1] / 2) * u.arcsec,
                                    frame=bkgmaps['lasco_c3'].coordinate_frame)
-            top_right_debuff = SkyCoord(0.98 * fov[0] / 2 * u.arcsec, 0.98 * fov[1] / 2 * u.arcsec,
+            top_right_debuff = SkyCoord((fov_center[0] + 0.98 * fov[0] / 2) * u.arcsec,
+                                        (fov_center[1] + 0.98 * fov[1] / 2) * u.arcsec,
                                         frame=bkgmaps['lasco_c3'].coordinate_frame)
-            bottom_left_debuff = SkyCoord(-0.98 * fov[0] / 2 * u.arcsec, -0.98 * fov[1] / 2 * u.arcsec,
+            bottom_left_debuff = SkyCoord((fov_center[0] - 0.98 * fov[0] / 2) * u.arcsec,
+                                          (fov_center[1] - 0.98 * fov[1] / 2) * u.arcsec,
                                           frame=bkgmaps['lasco_c3'].coordinate_frame)
             bkgmaps['lasco_c3'] = bkgmaps['lasco_c3'].submap(bottom_left,
                                                              top_right=top_right)
             try:
                 bkgmaps['lasco_c2'] = bkgmaps['lasco_c2'].submap(bottom_left,
                                                                  top_right=top_right)
-                bkgmaps['suvi_171'] = bkgmaps['suvi_171'].submap(bottom_left,
-                                                                 top_right=top_right)
+                bkgmaps[suvi_key] = bkgmaps[suvi_key].submap(bottom_left,
+                                                             top_right=top_right)
             except:
                 pass
-
-            # start = time.time()
-            # corrected_data = correct_images(np.squeeze(data), px / delta_x, py / delta_y, cfreqsmhz)
-            corrected_data = np.squeeze(data)
-            # print(f"Time taken to correct images: {time.time() - start:.1f} seconds")
 
             axs = []
             fig = plt.figure(figsize=(12, 6) if dual_panel else (6, 6), constrained_layout=True)
@@ -253,13 +293,12 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
             for ax in axs:
                 bkgmaps['lasco_c3'].plot(axes=ax, cmap='gray', zorder=-3)
                 bkgmaps['lasco_c2'].plot(axes=ax, cmap='gray', zorder=-2, autoalign=True)
-                bkgmaps['suvi_171'].plot(axes=ax, clip_interval=(1, 99.9) * u.percent, autoalign=True, cmap='gray',
-                                         zorder=-1)
+                bkgmaps[suvi_key].plot(axes=ax, clip_interval=(1, 99.9) * u.percent, autoalign=True, cmap='gray',
+                                       zorder=-1)
 
             cmap = plt.get_cmap('jet')
             colors_frac = np.linspace(0, 1, len(freqplts))
             colors = cmap(colors_frac)
-            shifts_x, shifts_y = pxy2shifts(px, py, freqplts)
             for idx, freqplt in enumerate(freqplts):
                 fidx = np.nanargmin(np.abs(meta['cfreqs'] * cfreq_unit - freqplt))
 
@@ -278,10 +317,9 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
                 with Helioprojective.assume_spherical_screen(lwamap.observer_coordinate):
                     lwa_reprojected = lwamap.reproject_to(projected_header_lwa)
 
+                # print(f'shift in freq {freqplt}: {shifts_x[idx]}, {shifts_y[idx]}')
                 lwa_reprojected = lwa_reprojected.shift_reference_coord(-shifts_x[idx] * u.arcsec,
                                                                         -shifts_y[idx] * u.arcsec)
-                # lwa_reprojected_crop = lwa_reprojected.submap(bkgmaps['lasco_c2'].bottom_left_coord,
-                #                                               top_right=bkgmaps['lasco_c2'].top_right_coord)
 
                 lwa_reprojected_crop = lwa_reprojected.submap(bottom_left_debuff,
                                                               top_right=top_right_debuff)
@@ -327,7 +365,7 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
             ax.text(0.02, 0.06, define_timestring(bkgmaps_orig['lasco_c2'], delimiter=' '), transform=ax.transAxes,
                     color='white',
                     va='bottom', ha='left')
-            ax.text(0.02, 0.02, define_timestring(bkgmaps_orig['suvi_171'], delimiter=' '), transform=ax.transAxes,
+            ax.text(0.02, 0.02, define_timestring(bkgmaps_orig[suvi_key], delimiter=' '), transform=ax.transAxes,
                     color='white',
                     va='bottom', ha='left')
 
@@ -412,6 +450,7 @@ if __name__ == "__main__":
     parser.add_argument('--workdir', type=str, default='.', help='Path to refraction correction parameters')
     parser.add_argument('--datadir', type=str, default='.', help='Path to the data directory')
     parser.add_argument('--scaled_suvi', action='store_true', help='Scale the SUVI images')
+    parser.add_argument('--suvi_passband', type=str, default='171', help='SUVI passband to use')
     parser.add_argument('--show_ax_grid', action='store_true', help='Show axis grid on the images')
     parser.add_argument('--alpha', type=float, default=0.7, help='Alpha value for transparency')
     parser.add_argument('--snr_threshold', type=float, default=0.0, help='SNR threshold for the radio images')
@@ -419,12 +458,17 @@ if __name__ == "__main__":
                         help='Minimum value as a percentage of the data maximum for the colormap')
     parser.add_argument('--draw_contours', action='store_true', help='Draw contours on the images')
     parser.add_argument('--fov', type=int, nargs=2, default=[16000, 16000], help='Field of view in arcsec')
+    parser.add_argument('--fov_center', type=int, nargs=2, default=[0, 0], help='Center of the field of view in arcsec')
     parser.add_argument('--dual_panel', action='store_true', help='Plot the radio and white-light images side by side')
+    parser.add_argument('--autocorr', action='store_true',
+                        help='Do automatic correlation for refraction. If this is set, the px1 and py1 will be overwritten by the calculated values.')
     parser.add_argument('--docorr', action='store_true', help='Do refraction correction')
-    parser.add_argument('--get_latest_version', action='store_true', help='Get the latest version of the parameters. Now we are using csv instead of json. The keyword will be obsolete in the next update.')
-    parser.add_argument('--rfrcor_parm_files', type=str, nargs='+', default=[], help='Refraction correction parameter files')
+    parser.add_argument('--get_latest_version', action='store_true',
+                        help='Get the latest version of the parameters. Now we are using csv instead of json. The keyword will be obsolete in the next update.')
+    parser.add_argument('--rfrcor_parm_files', type=str, nargs='+', default=[],
+                        help='Refraction correction parameter files')
     parser.add_argument('--interp_method', type=str, nargs=2, default=['fit:linear', 'fit:linear'],
-                        help='Interpolation methods for refraction correction parameters for pi1 and pi2 respectively (i stands for x and y). Options: fit:linear, fit:quadratic, interp:linear, interp:nearest, interp:nearest-up, interp:zero, interp:quadratic, interp:cubic, interp:previous, interp:next. If one method is provided, it will be used for both pi1 and pi2.')
+                        help='Interpolation methods for refraction correction parameters for pi1 and pi2 respectively (i stands for x and y). Options: mean, fit:linear, fit:quadratic, interp:linear, interp:nearest, interp:nearest-up, interp:zero, interp:quadratic, interp:cubic, interp:previous, interp:next. If one method is provided, it will be used for both pi1 and pi2.')
     parser.add_argument('--overwrite', action='store_true', help='Overwrite existing image jpg files')
     parser.add_argument('--trajectory_file', type=str, default='', help='Path to the trajectory file')
     parser.add_argument('--sshconfig', type=str, default='./ssh-to-data.private.config', help='SSH config file')
@@ -502,15 +546,18 @@ if __name__ == "__main__":
          specmode=args.specmode,
          mnorm=mnorm,
          refrac_corr=args.docorr,
+         auto_corr=args.autocorr,
          workdir=args.workdir,
          datadir=args.datadir,
          scaled_suvi=args.scaled_suvi,
+         suvi_passband=args.suvi_passband,
          show_ax_grid=args.show_ax_grid,
          alpha=args.alpha,
          snr_threshold=args.snr_threshold,
          minpercent=args.minpercent,
          draw_contours=args.draw_contours,
          fov=args.fov,
+         fov_center=args.fov_center,
          dual_panel=args.dual_panel,
          get_latest_version=args.get_latest_version,
          timediff_tol=args.timediff_tol,

@@ -12,6 +12,99 @@ import pyvista as pv
 from astropy.time import Time
 from matplotlib.dates import AutoDateFormatter, AutoDateLocator, MinuteLocator
 from scipy.interpolate import interp1d
+from skimage.registration import phase_cross_correlation
+
+def apply_intensity_threshold(img, per_thrshd=95):
+    """
+    Set pixels with intensity below a specified percentile to 0.
+
+    :param img: np.ndarray
+        The input image to be thresholded.
+    :param per_thrshd: int, optional
+        The percentile value to use as the threshold (default is 95).
+    :return: np.ndarray
+        The thresholded image.
+    """
+    percentile_img = np.percentile(img, per_thrshd)
+    thresholded_img = np.where(img < percentile_img, 0, img)
+    return thresholded_img
+
+
+def cal_pix_shifts(imgs, ref_image):
+    """
+    Calculate shifts between a reference image and a list of images using phase cross-correlation.
+
+    :param imgs: list of np.ndarray
+        List of images to calculate shifts for.
+    :param ref_image: np.ndarray
+        The reference image to compare against.
+    :return: np.ndarray
+        Array of calculated shifts for each image.
+    Note: the current shift2pxy use the the shift x and y at freq[-1] in arcsec. need to calculate the values and derive the px and py.
+    """
+    shiftpx = []
+
+    for img in imgs[:-1]:
+        shift, _, _ = phase_cross_correlation(ref_image, img, upsample_factor=100)
+        shiftpx.append(shift)
+
+    shiftpx = -np.array(shiftpx)
+    return np.array(shiftpx)
+
+
+def cal_pxy(freqs, shiftpx, nskip=0, order=1, plot=True):
+    """
+    Register images based on calculated shifts and fit polynomial models to the shifts.
+
+    :param freqs: np.ndarray
+        Array of frequencies corresponding to the images.
+    :param shiftpx: np.ndarray
+        Array of calculated shifts for each image.
+    :param nskip: int, optional
+        Number of initial shifts to skip when fitting (default is 40).
+    :param order: int, optional
+        Order of the polynomial fit (default is 1).
+    :param plot: bool, optional
+        If True, plot the shifts and polynomial fits (default is True).
+    :return: tuple of (np.ndarray, np.ndarray)
+        - px: Polynomial coefficients for x-axis shifts.
+        - py: Polynomial coefficients for y-axis shifts.
+    """
+    if2 = freqs ** (-2)
+    px = np.polyfit(if2[nskip:-1], shiftpx[nskip:, 0], order)
+    py = np.polyfit(if2[nskip:-1], shiftpx[nskip:, 1], order)
+
+    if plot:
+        fq = np.linspace(0.00001, 0.001, 200)
+        fplt = np.sqrt(1/fq)
+
+        f, axs = plt.subplots(1, 2,figsize=(10,4),sharey=True)
+        ax= axs[0]
+        ax.plot(if2[:-1], shiftpx[:, 0], '.', label='xshift')
+        ax.plot(if2[:-1], shiftpx[:, 1], '.', label='yshift')
+        ax.plot(fq, np.polyval(px, fq), color='C0')
+        ax.plot(fq, np.polyval(py, fq), color='C1')
+        ax.text(-0.00, px[-1], f'{px[-1]:.2f}', color='C0',ha='right')
+        ax.text(-0.00, py[-1], f'{py[-1]:.2f}', color='C1',ha='right')
+        ax.set_xlim(-0.0002, 0.0010)
+        ax.set_ylim(-50, 50)
+        ax.set_xlabel('1/freq^2')
+        ax.set_ylabel('Shift (pixels)')
+        ax.legend()
+
+        ax = axs[1]
+        ax.plot(freqs[:-1], shiftpx[:, 0], '.', label='xshift')
+        ax.plot(freqs[:-1], shiftpx[:, 1], '.', label='yshift')
+        ax.plot(fplt, np.polyval(px, fq), color='C0')
+        ax.plot(fplt, np.polyval(py, fq), color='C1')
+        ax.text(20, px[-1], f'{px[-1]:.2f}', color='C0')
+        ax.text(20, py[-1], f'{py[-1]:.2f}', color='C1')
+        ax.set_ylim(-50, 50)
+        ax.set_xlim(10,100)
+        ax.set_xlabel('Frequency (MHz)')
+        ax.set_ylabel('Shift (pixels)')
+        ax.legend()
+    return px, py
 
 
 def create_pvimgdata(data, spacing, origin, dimensions):
@@ -66,12 +159,12 @@ def extract_reffreq(meta):
 
 def shift2pxy(shiftx, shifty, freq):
     """
-    Calculate refraction correction coefficients from the given shifts in pixel unit and frequency.
+    Calculate refraction correction coefficients from the given shifts in physical units unit and frequency.
 
     :param shiftx: float
-        Solar X shift in pixel.
+        Solar X shift in physical units.
     :param shifty: float
-        Solar Y shift in pixel.
+        Solar Y shift in physical units.
     :param freq: float
         Frequency of the image in MHz.
     :return: tuple
@@ -94,7 +187,7 @@ def pxy2shifts(px, py, freqs):
     :param freqs: list
         List of frequencies in MHz.
     :return: tuple
-        Solar X and Y shifts (shifts_x, shifts_y) in pixel units.
+        Solar X and Y shifts (shifts_x, shifts_y) in physical units.
     """
     freqshz = np.array(freqs) * 1e6
     shifts_x = px[0] * 1 / freqshz ** 2 + px[1]
@@ -123,11 +216,11 @@ def plot_interpolated_params(tims, px_values, py_values, target_times, px_at_tar
 
     ax_parms[0].plot(timplt, px_values[:, 0], marker='o', ls='', color='tab:blue', label='data')
     ax_parms[0].plot(target_times_plt, px_at_targets[:, 0], '-', color='tab:blue', label='fit')
-    ax_parms[0].set_ylabel('σₓ [arcsec/Hz²]')
+    ax_parms[0].set_ylabel('σₓ [arcsec/MHz²]')
 
     ax_parms[1].plot(timplt, py_values[:, 0], marker='o', ls='', color='tab:blue', label='data')
     ax_parms[1].plot(target_times_plt, py_at_targets[:, 0], '-', color='tab:blue', label='fit')
-    ax_parms[1].set_ylabel('σᵧ [arcsec/Hz²]')
+    ax_parms[1].set_ylabel('σᵧ [arcsec/MHz²]')
 
     ax_parms[2].plot(timplt, px_values[:, 1], marker='o', ls='', color='tab:blue', label='data')
     ax_parms[2].plot(target_times_plt, px_at_targets[:, 1], '-', color='tab:blue', label='fit')
@@ -245,6 +338,7 @@ def interpolate_rfrcorr_file(filename, target_times, methods=('fit:linear', 'fit
     if len(tims) > 1:
         px_at_targets, py_at_targets = interpolate_rfrcorr_params(tims, px_values, py_values, target_times,
                                                                   methods)
+        print(f"method: {methods}")
         if do_plot:
             plot_interpolated_params(tims, px_values, py_values, target_times, px_at_targets, py_at_targets, save_fig=save_fig,
                                      workdir=workdir)
@@ -265,7 +359,7 @@ def interpolate_rfrcorr_params(times, px_values, py_values, target_times, method
     :type py_values: list
     :param target_times: List or scalar time string(s) in the format %Y-%m-%dT%H:%M:%S for which interpolation/ fitting is required.
     :type target_times: list or str
-    :param methods: fit/Interpolation methods ('fit:linear', 'fit:quadratic', 'interp:linear', 'interp:nearest', 'interp:nearest-up', 'interp:zero', 'interp:quadratic', 'interp:cubic', 'interp:previous', 'interp:next'), defaults to ('interp:linear', 'interp:linear').
+    :param methods: fit/Interpolation methods ('mean', 'fit:linear', 'fit:quadratic', 'interp:linear', 'interp:nearest', 'interp:nearest-up', 'interp:zero', 'interp:quadratic', 'interp:cubic', 'interp:previous', 'interp:next'), defaults to ('interp:linear', 'interp:linear').
     :type methods: tuple, optional
     :return: List of interpolated/fit px and py arrays for each target time if target_times is a list, or a single interpolated/fit px and py array if target_times is a scalar.
     :rtype: list
@@ -310,9 +404,13 @@ def interpolate_rfrcorr_params(times, px_values, py_values, target_times, method
             for col in range(values.shape[1]):
                 interp_func = interp1d(times_numeric, values[:, col], kind=interp_kind, fill_value="extrapolate")
                 result.append(interp_func(target_times_numeric))
+        elif method =='mean':
+            for col in range(values.shape[1]):
+                mean_value = np.nanmean(values[:, col])
+                result.append(np.full((len(target_times_numeric)), mean_value))
         else:
             raise ValueError(
-                f"Unknown method: {method}. Supported methods are 'fit:linear', 'fit:quadratic', and 'interp:<method>'.")
+                f"Unknown method: {method}. Supported methods are 'mean', 'fit:linear', 'fit:quadratic', and 'interp:<method>'.")
 
         return np.array(result).T
 
