@@ -2,10 +2,14 @@
 requires = ["setuptools",
     "wheel",
     "setuptools_scm",
-"numpy",
-"scipy",
+    "numpy",
+    "scipy",
     "matplotlib",
     "sunpy",
     "paramiko",
     "pyvista"
 ]
+build-backend = "setuptools.build_meta"
+
+[project]
+python_requires = ">=3.10,<3.11"

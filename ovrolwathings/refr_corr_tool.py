@@ -618,7 +618,7 @@ class ImageCorrectionApp(BackgroundPlotter):
 
             actor = self.add_mesh(img_data, scalars='scalar', rgb=False,
                                   cmap=cmap, opacity='opacity',
-                                  clim=(0, 255),
+                                  clim=(5, 254),
                                   show_edges=False,
                                   preference='cell',
                                   specular = 1.0,
