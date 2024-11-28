@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import sunpy
 from astropy.coordinates import SkyCoord
+from astropy.time import Time
 from hvpy.datasource import DataSource
 from sunpy.coordinates import Helioprojective
 from sunpy.map import Map
@@ -93,7 +94,7 @@ def enhance_offdisk_corona(smap):
     params = np.polyfit(rsun_array[rsun_array < 1.5],
                         np.log(y[rsun_array < 1.5]), 1)
     # best_fit = np.exp(np.poly1d(params)(rsun_array))
-    scale_factor = np.exp((r - 1) * (-params[0]))
+    scale_factor = np.exp((r - 1) * (-params[0]) / 2)
     scale_factor[r < 1] = 1
     scaled_smap = sunpy.map.Map(smap.data * scale_factor, smap.meta)
     return scaled_smap
@@ -104,6 +105,10 @@ def enhance_offdisk_corona(smap):
 #     imgcorr = rct.ImageCorrectionApp(lwafile=lwafile, background_map=background_map)
 #     imgcorr.show()
 #     # sys.exit(app.exec_())
+
+# def get_submap_mean(smap, x1, y1, x2, y2):
+#     submap = smap.submap([x1 * u.arcsec, x2 * u.arcsec], [y1 * u.arcsec, y2 * u.arcsec])
+#     return np.nanmean(submap.data)
 
 
 def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', specmode='mfs',
@@ -116,13 +121,14 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
          show_ax_grid=True, alpha=0.7, minpercent=5, draw_contours=False,
          fov=[16000, 16000],
          fov_center=[0, 0],
+         roi=None,
+         roi_percentile=None,
          dual_panel=False,
          get_latest_version=False,
          timediff_tol=None, sshconfig='ssh-to-data.private.config',
          snr_threshold=0.0,
          rfrcor_parm_files=[], interp_method=('fit:linear', 'fit:linear'), trajectory_file='', overwrite=False):
     do_plot = False if refrac_corr else True
-
     try:
         if os.path.isabs(workdir):
             if not os.path.exists(workdir):
@@ -138,7 +144,11 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
                                         specmode=specmode,
                                         config=os.path.join(base_dir, sshconfig))
     # print("Downloaded files:", downloaded_files)
-
+    ntim = len(timestamps)
+    if roi is None:
+        specs = None
+    else:
+        specs = {i: [[]] * ntim for i in range(len(roi))}
     if do_plot:
         plt.ioff()
         print(rfrcor_parm_files)
@@ -159,49 +169,51 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
     for tidx, (downloaded_file, timestamp) in enumerate(tqdm(zip(downloaded_files, timestamps))):
         print(f'file: {downloaded_file}, timestamp: {timestamp}')
         # if tidx > 0: continue
-        if downloaded_file is None: continue
+        if downloaded_file is None:
+            if roi is not None:
+                for ridx in specs:
+                    specs[ridx][tidx] = None
+            continue
         timestr = timestamp.strftime("%Y%m%dT%H%M%S")
-        lasco_c3_jp2_file = get_and_create_download_dir() + f"/LASCO_C3_{timestr}.jp2"
-        if not os.path.exists(lasco_c3_jp2_file):
-            lasco_c3_jp2_file = hvpy.save_file(hvpy.getJP2Image(timestamp,
-                                                                DataSource.LASCO_C3.value),
-                                               filename=lasco_c3_jp2_file, overwrite=True)
-        lasco_c2_jp2_file = get_and_create_download_dir() + f"/LASCO_C2_{timestr}.jp2"
-        if not os.path.exists(lasco_c2_jp2_file):
-            lasco_c2_jp2_file = hvpy.save_file(hvpy.getJP2Image(timestamp,
-                                                                DataSource.LASCO_C2.value),
-                                               filename=lasco_c2_jp2_file, overwrite=True)
-        suvi_jp2_file = get_and_create_download_dir() + f"/SUVI_{suvi_passband}_{timestr}.jp2"
-        if not os.path.exists(suvi_jp2_file):
-            suvi_data_source = suvi_passband_map.get(suvi_passband, DataSource.SUVI_171.value)
-            suvi_jp2_file = hvpy.save_file(hvpy.getJP2Image(timestamp,
-                                                            suvi_data_source),
-                                           filename=suvi_jp2_file, overwrite=True)
 
         if do_plot:
             if filetype == 'hdf':
-                meta, data = recover_fits_from_h5(downloaded_file, return_data=True)
+                ## Reading data from fch hdf files is slow, therefore only read meta first
+                meta = recover_fits_from_h5(downloaded_file, return_data=True, return_meta_only=True)
             else:
                 meta, data = ndfits.read(downloaded_file)
                 if 'cfreqs' not in meta:
                     meta['cfreqs'] = meta['ref_cfreqs']
-            corrected_data = np.squeeze(data)
-            header = meta['header']
-            delta_x = header['CDELT1']
-            delta_y = header['CDELT2']
-            cfreq_unit = u.Unit(meta['header']['CUNIT3'])
-            cfreqsmhz = meta['cfreqs'] / 1e6
-            lwamap = Map(data[0, 0, ...], meta['header'])
-            figname = define_filename(lwamap, prefix="fig-", ext=".jpg").replace(' ', '_')
+
+            figname = define_filename(meta['header'], prefix="fig-", ext=".jpg").replace(' ', '_')
             if 'figpath' not in locals():
                 figpath = figname.split('T')[0]
                 if not os.path.exists(figpath):
                     os.makedirs(figpath, exist_ok=True)
             figname = os.path.join(figpath, figname)
             if not overwrite and os.path.exists(figname):
-                print(f"Skipping existing file: {figname}")
-                continue
+                if roi is None:
+                    print(f"Skipping existing file: {figname}")
+                    continue
 
+            # print(f'{downloaded_file} n of freqs: {ncfreqs}')
+
+            if filetype == 'hdf':
+                meta, data = recover_fits_from_h5(downloaded_file, return_data=True)
+            header = meta['header']
+            delta_x = header['CDELT1']
+            delta_y = header['CDELT2']
+            cfreq_unit = u.Unit(meta['header']['CUNIT3'])
+            ncfreqs = len(meta['cfreqs'])
+            corrected_data = np.squeeze(data)
+            if not np.all(np.diff(meta['cfreqs']) > 0):
+                cfreqs_sort_idx = np.argsort(meta['cfreqs'])
+                meta['cfreqs'] = meta['cfreqs'][cfreqs_sort_idx]
+                cfreqshz = meta['cfreqs']
+                cfreqsmhz = cfreqshz / 1e6
+                corrected_data = corrected_data[cfreqs_sort_idx, ...]
+            # print(f'cfreqs [Hz]: {cfreqshz}')
+            lwamap = Map(corrected_data[0], meta['header'])
             if rfrcor_parm_files:
                 if len(px_at_targets) > 0 and len(py_at_targets) > 0:
                     px, py = px_at_targets[tidx], py_at_targets[tidx]
@@ -231,8 +243,54 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
             else:
                 shifts_x, shifts_y = pxy2shifts(px, py, freqplts)
 
-            # import pdb;
-            # pdb.set_trace()
+            if roi is not None:
+                shifts_x_all, shifts_y_all = pxy2shifts(px, py, cfreqsmhz)
+                # print(f'shifts_x_all: {shifts_x_all}, shifts_y_all: {shifts_y_all}')
+                roi_coords = {}
+                for ridx, roi_ in enumerate(roi):
+                    specs[ridx][tidx] = np.full((ncfreqs), np.nan)
+                # print(f'cfreqsmhz: {cfreqsmhz}')
+                for idx, freq in enumerate(cfreqsmhz):
+                    lwamap = Map(corrected_data[idx, ...], meta['header'])
+                    lwamap = lwamap.shift_reference_coord(-shifts_x_all[idx] * u.arcsec,
+                                                          -shifts_y_all[idx] * u.arcsec)
+                    # print(lwamap.data.shape)
+                    for ridx, roi_ in enumerate(roi):
+                        if idx == 0:
+                            x1, y1, x2, y2 = roi_
+                            top_right_roi = SkyCoord(x2 * u.arcsec, y2 * u.arcsec, frame=lwamap.coordinate_frame)
+                            bottom_left_roi = SkyCoord(x1 * u.arcsec, y1 * u.arcsec, frame=lwamap.coordinate_frame)
+                            roi_coords[ridx] = (bottom_left_roi, top_right_roi)
+                        bottom_left_roi, top_right_roi = roi_coords[ridx]
+                        lwamap_sub = lwamap.submap(bottom_left_roi, top_right=top_right_roi)
+                        # print(lwamap_sub.data)
+                        # import IPython;
+                        # IPython.embed()
+                        if roi_percentile is None:
+                            specs[ridx][tidx][idx] = np.nanmean(lwamap_sub.data)
+                        else:
+                            specs[ridx][tidx][idx] = np.nanpercentile(lwamap_sub.data, roi_percentile)
+                        # print(f'ridx: {ridx}, idx: {idx}, freq: {freq}, mean: {specs[ridx][tidx][idx]}')
+                for ridx, spec in specs.items():
+                    specs[ridx][tidx] = np.array(specs[ridx][tidx])[cfreqs_sort_idx]
+                continue
+
+            lasco_c3_jp2_file = get_and_create_download_dir() + f"/LASCO_C3_{timestr}.jp2"
+            if not os.path.exists(lasco_c3_jp2_file):
+                lasco_c3_jp2_file = hvpy.save_file(hvpy.getJP2Image(timestamp,
+                                                                    DataSource.LASCO_C3.value),
+                                                   filename=lasco_c3_jp2_file, overwrite=True)
+            lasco_c2_jp2_file = get_and_create_download_dir() + f"/LASCO_C2_{timestr}.jp2"
+            if not os.path.exists(lasco_c2_jp2_file):
+                lasco_c2_jp2_file = hvpy.save_file(hvpy.getJP2Image(timestamp,
+                                                                    DataSource.LASCO_C2.value),
+                                                   filename=lasco_c2_jp2_file, overwrite=True)
+            suvi_jp2_file = get_and_create_download_dir() + f"/SUVI_{suvi_passband}_{timestr}.jp2"
+            if not os.path.exists(suvi_jp2_file):
+                suvi_data_source = suvi_passband_map.get(suvi_passband, DataSource.SUVI_171.value)
+                suvi_jp2_file = hvpy.save_file(hvpy.getJP2Image(timestamp,
+                                                                suvi_data_source),
+                                               filename=suvi_jp2_file, overwrite=True)
             lasco_c3_map = Map(lasco_c3_jp2_file)
             lasco_c2_map = Map(lasco_c2_jp2_file)
             suvi_map = Map(suvi_jp2_file)
@@ -299,8 +357,9 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
             cmap = plt.get_cmap('jet')
             colors_frac = np.linspace(0, 1, len(freqplts))
             colors = cmap(colors_frac)
+
             for idx, freqplt in enumerate(freqplts):
-                fidx = np.nanargmin(np.abs(meta['cfreqs'] * cfreq_unit - freqplt))
+                fidx = np.nanargmin(np.abs(cfreqshz * cfreq_unit - freqplt))
 
                 if snr_threshold > 0:
                     snr = np.nanmax(corrected_data[fidx, ...]) / np.nanstd(corrected_data[fidx, :10, :])
@@ -312,7 +371,7 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
                                                                      projected_coord,
                                                                      scale=u.Quantity(lwamap.scale),
                                                                      instrument='ovrolwa',
-                                                                     wavelength=meta['cfreqs'][fidx] * u.Hz)
+                                                                     wavelength=cfreqshz[fidx] * u.Hz)
 
                 with Helioprojective.assume_spherical_screen(lwamap.observer_coordinate):
                     lwa_reprojected = lwamap.reproject_to(projected_header_lwa)
@@ -394,7 +453,7 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
         if refrac_corr:
             # imgcorr = rct.ImageCorrectionApp(lwafile=downloaded_file, background_map= [lasco_c3_jp2_file,lasco_c2_jp2_file, suvi_jp2_file])
             # imgcorr.show()
-            print(f"t{tidx + 1}/{len(timestamps)} --------------- processing refrac corr for  timestamp: {timestamp}")
+            print(f"t{tidx + 1}/{ntim} --------------- processing refrac corr for  timestamp: {timestamp}")
             # run_imgcorr_app(lwafile=downloaded_file, background_map = [lasco_c3_jp2_file,lasco_c2_jp2_file, suvi_jp2_file])
             # Convert the background map files from Path objects to strings if necessary
             lasco_c3_jp2_file = str(lasco_c3_jp2_file)
@@ -412,6 +471,39 @@ def main(mode, timestamps, freqplts, mnorm=None, level='lev1', filetype='hdf', s
             print(' '.join(command))
             # Execute the command
             subprocess.run(command)
+    if roi is not None:
+        time_axis = Time(timestamps)
+        freq_axis = cfreqshz
+        from suncasa.dspec import dspec as ds
+        d = ds.Dspec()
+        d.time_axis = time_axis
+        d.freq_axis = freq_axis
+        timestr = timestamps[0].strftime("%Y%m%dT%H%M%S")
+
+        # import pickle
+        # with open(os.path.join(figpath, f'OVROLWA.spec.ROIs.{timestr}.pkl'), 'wb') as f:
+        #     pickle.dump([specs, freq_axis, time_axis], f)
+        #
+        # file_pkl = os.path.join(figpath, f'OVROLWA.spec.ROIs.{timestr}.pkl')
+        # with open(file_pkl, 'rb') as f:
+        #     specs, freq_axis, time_axis = pickle.load(f)
+        for ridx, spec in specs.items():
+            max_length = max(len(s) if s is not None else 0 for s in spec)
+            print(f"ROI {ridx}: max_length: {max_length}")
+            spec = [s if s is not None and len(s) == max_length else np.full(max_length, np.nan) for s in spec]
+            spec = np.array(spec)
+
+            if spec.ndim != 2 or spec.shape[1] != len(freq_axis):
+                raise ValueError("The array dimensions do not match the frequency axis length.")
+
+            specs[ridx] = spec.T  # Transpose to match expected dimensions for dspec
+            d.data = specs[ridx]
+
+            filename = os.path.join(figpath, f'OVROLWA.spec.ROI{ridx}.{timestr}.fits')
+            d.tofits(fitsfile=filename, spec_unit='K', observer='OVSAs team', telescope='OVRO-LWA',
+                     observatory='Owens Valley Radio Observatory')
+            print(f"Saved ROI spec file: {filename}")
+
     print("Done!")
     # print(f"Processed files: {downloaded_files}")
 
@@ -472,7 +564,12 @@ if __name__ == "__main__":
     parser.add_argument('--overwrite', action='store_true', help='Overwrite existing image jpg files')
     parser.add_argument('--trajectory_file', type=str, default='', help='Path to the trajectory file')
     parser.add_argument('--sshconfig', type=str, default='./ssh-to-data.private.config', help='SSH config file')
-
+    parser.add_argument('--roi', type=float, nargs=4, action='append',
+                        help='Define one or more regions of interest (ROIs) using bottom-left and top-right coordinates as (x1, y1, x2, y2). '
+                             'To specify multiple ROIs, repeat the --roi option for each region. For example: '
+                             '--roi 10 20 30 40 --roi 50 60 70 80 will define two ROIs.')
+    parser.add_argument('--roi_percentile', type=float,
+                        help='Percentile value for extracting the ROI spectrogram. If not specified, the ROI will default to the mean value.')
     args = parser.parse_args()
 
     if args.timestamps:
@@ -540,6 +637,10 @@ if __name__ == "__main__":
 
     trajectory_file = args.trajectory_file if os.path.exists(args.trajectory_file) else ''
 
+    # Check if roi_percentile is provided as the string "None" and convert it to None
+    if isinstance(args.roi_percentile, str) and args.roi_percentile.lower() == 'none':
+        args.roi_percentile = None
+
     main(args.mode, timestamps, freqplts,
          level=args.level,
          filetype=args.filetype,
@@ -559,6 +660,8 @@ if __name__ == "__main__":
          fov=args.fov,
          fov_center=args.fov_center,
          dual_panel=args.dual_panel,
+         roi=args.roi,
+         roi_percentile=args.roi_percentile,
          get_latest_version=args.get_latest_version,
          timediff_tol=args.timediff_tol,
          rfrcor_parm_files=rfrcor_parm_files,

@@ -13,6 +13,8 @@ from astropy.time import Time
 from matplotlib.dates import AutoDateFormatter, AutoDateLocator, MinuteLocator
 from scipy.interpolate import interp1d
 from skimage.registration import phase_cross_correlation
+from sunpy.map import GenericMap
+from astropy.io.fits import Header
 
 def apply_intensity_threshold(img, per_thrshd=95):
     """
@@ -557,10 +559,23 @@ def data1d_to_rgba(data, color, alpha=1.0, minpercent=0):
 
 def define_filename(rmap, prefix="", ext=".json", delimiter="_", directory=".", get_latest_version=False):
     """
-    Define the filename for saving refraction correction parameters with the highest version.
+    Define the filename for saving refraction correction parameters, optionally with the latest version.
 
-    :return: str
-        Defined filename with the highest version tag if it exists.
+    :param rmap: The input data, which can be either a SunPy map or an Astropy FITS header, used to define the filename.
+    :type rmap: sunpy.map.GenericMap or astropy.io.fits.header.Header
+    :param prefix: Prefix for the filename, defaults to an empty string.
+    :type prefix: str, optional
+    :param ext: File extension, defaults to ".json".
+    :type ext: str, optional
+    :param delimiter: Delimiter to use in the filename, defaults to "_".
+    :type delimiter: str, optional
+    :param directory: Directory where the file will be saved, defaults to the current directory ".".
+    :type directory: str, optional
+    :param get_latest_version: If True, finds the latest version of the file if it exists, defaults to False.
+    :type get_latest_version: bool, optional
+    :raises ValueError: If the extension is not a valid string format.
+    :return: Defined filename with the highest version tag if `get_latest_version` is True and versioned files exist.
+    :rtype: str
     """
 
     def get_latest_versioned_filename(base_filename, ext, directory='.'):
@@ -593,18 +608,31 @@ def define_filename(rmap, prefix="", ext=".json", delimiter="_", directory=".", 
 
         return os.path.join(directory, latest_versioned_filename)
 
+    observatory = ""
+    detector = ""
+    dateobs = None
     filename_ = []
-    if hasattr(rmap, 'observatory') and rmap.observatory != "":
-        filename_.append(f"{rmap.observatory.rstrip('-fast')}")
-    if hasattr(rmap, 'detector') and rmap.detector != "":
-        filename_.append(f"{rmap.detector}")
-    if hasattr(rmap, 'date'):
-        if ext == ".json":
-            filename_.append(rmap.date.strftime("%Y-%m-%dT%H%M%S"))
-        elif ext == ".csv":
-            filename_.append(rmap.date.strftime("%Y-%m-%d"))
-        else:
-            filename_.append(rmap.date.strftime("%Y-%m-%dT%H%M%S"))
+
+    if isinstance(rmap, GenericMap):
+        # Extract information for SunPy GenericMap
+        observatory = getattr(rmap, 'observatory', '').rstrip('-fast')
+        detector = getattr(rmap, 'detector', '')
+        dateobs = rmap.date.to_datetime() if hasattr(rmap, 'date') else None
+    elif isinstance(rmap, Header):
+        # Extract information for Astropy FITS Header
+        observatory = rmap.get('TELESCOP', '').rstrip('-fast')
+        detector = rmap.get('INSTRUME', '')
+        dateobs = Time(rmap.get('DATE-OBS')).to_datetime() if 'DATE-OBS' in rmap else None
+
+    # Append extracted information
+    if observatory:
+        filename_.append(observatory)
+    if detector:
+        filename_.append(detector)
+    if dateobs:
+        date_format = "%Y-%m-%d" if ext == ".csv" else "%Y-%m-%dT%H%M%S"
+        filename_.append(dateobs.strftime(date_format))
+
     base_filename = delimiter.join(filename_)
     base_filename = f"{prefix}{base_filename}"
     #
