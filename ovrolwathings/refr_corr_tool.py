@@ -30,7 +30,7 @@ from ovrolwathings.utils import correct_images, define_filename, define_timestri
     norm_to_percent, plot_interpolated_params, pxy2shifts, shift2pxy
 
 UI_dir = Path(__file__).parent / 'UI'
-
+print(f"UI_dir: {UI_dir}")  
 
 def enhance_offdisk_corona(sunpymap):
     hpc_coords = all_coordinates_from_map(sunpymap)
@@ -927,12 +927,12 @@ class ImageCorrectionApp(BackgroundPlotter):
 
         self.load_rfr_parms_button = QPushButton('', self)
         self.load_rfr_parms_button.setIcon(QIcon(str(UI_dir / 'open_icon.png')))
-        self.load_rfr_parms_button.setToolTip('Load parameters from a JSON file')
+        self.load_rfr_parms_button.setToolTip('Load parameters from a CSV file')
         rfr_parms_ctrl_layout1.addWidget(self.load_rfr_parms_button)
 
         self.save_rfr_parms_button = QPushButton('', self)
         self.save_rfr_parms_button.setIcon(QIcon(str(UI_dir / 'save_icon.png')))
-        self.save_rfr_parms_button.setToolTip('Save parameters to a JSON file')
+        self.save_rfr_parms_button.setToolTip('Save parameters to a CSV file')
         rfr_parms_ctrl_layout1.addWidget(self.save_rfr_parms_button)
         rfr_parms_ctrl_layout1.addStretch()
 
@@ -1359,11 +1359,11 @@ class ImageCorrectionApp(BackgroundPlotter):
 
     def save_params_to_file(self):
         """
-        Save refraction correction parameters to a JSON file.
+        Save refraction correction parameters to a JSON/CSV file.
         """
         params_filename = define_filename(self.rmap, prefix="refrac_corr_", ext=".csv", get_latest_version=True)
         options = QFileDialog.Options()
-        options |= QFileDialog.DontUseNativeDialog
+        options |= QFileDialog.DontUseNativeDialog | QFileDialog.DontConfirmOverwrite 
         filename, _ = QFileDialog.getSaveFileName(self.app_window, "Save", params_filename,
                                                   "CSV Files (*.csv);;JSON Files (*.json)", options=options)
         if filename:

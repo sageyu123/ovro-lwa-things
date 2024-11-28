@@ -27,7 +27,9 @@ from ovrolwathings.utils import apply_intensity_threshold, cal_pix_shifts, cal_p
     interpolate_rfrcorr_file, norm_to_percent, pxy2shifts
 from suncasa.io import ndfits
 
-base_dir = Path(ovrolwathings.__file__).parent
+# use pwd as base directory
+base_dir = os.getcwd()
+ #Path(ovrolwathings.__file__).parent
 
 # Dictionary mapping suvi_passband to DataSource values
 suvi_passband_map = {
